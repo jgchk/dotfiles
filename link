@@ -3,3 +3,5 @@
 ln -s "$HOME"/.dotfiles/nvim/ "$HOME"/.config/
 ln -s "$HOME"/.dotfiles/bspwm/ "$HOME"/.config/
 ln -s "$HOME"/.dotfiles/sxhkd/ "$HOME"/.config/
+ln -s "$HOME"/.dotfiles/kitty/ "$HOME"/.config
+ln -s "$HOME"/.dotfiles/beets/config.yaml "$HOME"/.config/beets

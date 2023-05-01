@@ -1,0 +1,25 @@
+directory: /mnt/monad/jake/Music
+library: ~/.config/beets/library.db
+
+import:
+  move: yes
+
+plugins: edit fetchart embedart badfiles replaygain spotify discogs bandcamp zero
+
+embedart:
+  remove_art_file: yes
+
+replaygain:
+  backend: ffmpeg
+
+bandcamp:
+  art: true
+
+badfiles:
+  check_on_import: yes
+  commands:
+    ogg: oggz validate
+    opus: opusinfo -q
+
+zero:
+  fields: genre
