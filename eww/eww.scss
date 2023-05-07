@@ -1,0 +1,81 @@
+* {
+  all: unset;
+}
+
+window {
+  background: #282828;
+  color: #ebdbb2;
+  font-size: 14px;
+  font-family: Inter;
+  border-radius: 3px;
+
+  & > * {
+    margin: 3px;
+  }
+}
+
+.workspaces {
+  .workspace-entry {
+    background: none;
+    margin: 3px;
+    padding-left: 1px;
+    font-size: 0.7rem;
+
+    &.current {
+      color: #98971a;
+      font-size: 1rem;
+    }
+    &.occupied {
+    }
+    &.empty {
+    }
+  }
+}
+
+.segment-top {
+  margin-top: 10px;
+}
+
+.segment-bottom {
+  margin-bottom: 1px;
+}
+
+.metric {
+  background-color: #1d2021;
+  padding: 5px 2px;
+  font-size: 12px;
+  color: #a89984;
+  border-radius: 2px;
+}
+
+.metric-icon {
+  font-size: 14px;
+  color: #ebdbb2;
+}
+
+.metric.volume {
+  padding: 0;
+
+  slider {
+    all: unset;
+  }
+
+  scale trough highlight {
+    all: unset;
+    background-color: #665c54;
+    border-bottom-right-radius: 5px;
+  }
+
+  scale trough {
+    all: unset;
+    background-color: #1d2021;
+    min-width: 34px;
+    min-height: 2px;
+  }
+}
+
+.time {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  color: #a89984;
+}
