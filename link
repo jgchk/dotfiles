@@ -7,6 +7,9 @@ mkdir -p "$HOME"/.config
 mkdir -p "$HOME"/.config/beets
 ln -s "$HOME"/.dotfiles/beets/config.yaml "$HOME"/.config/beets
 
+# Dunst
+ln -s "$HOME"/.dotfiles/dunst/ "$HOME"/.config/
+
 # Eww
 ln -s "$HOME"/.dotfiles/eww/ "$HOME"/.config/
 
