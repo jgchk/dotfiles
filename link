@@ -1,10 +1,17 @@
 # /bin/bash
 
+# Create config dir if it doesn't exist
 mkdir -p "$HOME"/.config
 
+# Beets
 mkdir -p "$HOME"/.config/beets
 ln -s "$HOME"/.dotfiles/beets/config.yaml "$HOME"/.config/beets
 
-ln -s "$HOME"/.dotfiles/nvim/ "$HOME"/.config/
-
+# Eww
 ln -s "$HOME"/.dotfiles/eww/ "$HOME"/.config/
+
+# Hyprland
+ln -s "$HOME"/.dotfiles/hypr/ "$HOME"/.config/
+
+# Neovim
+ln -s "$HOME"/.dotfiles/nvim/ "$HOME"/.config/
