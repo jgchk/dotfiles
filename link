@@ -13,5 +13,8 @@ ln -s "$HOME"/.dotfiles/eww/ "$HOME"/.config/
 # Hyprland
 ln -s "$HOME"/.dotfiles/hypr/ "$HOME"/.config/
 
+# Kitty
+ln -s "$HOME"/.dotfiles/kitty/ "$HOME"/.config/
+
 # Neovim
 ln -s "$HOME"/.dotfiles/nvim/ "$HOME"/.config/
