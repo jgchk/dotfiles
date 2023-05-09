@@ -24,3 +24,6 @@ export GTK2_RC_FILES="$XDG_CONFIG_HOME"/gtk-2.0/gtkrc
 
 # Postgres
 export PSQL_HISTORY="$XDG_DATA_HOME/psql_history"
+
+# Docker
+export DOCKER_CONFIG="$XDG_CONFIG_HOME"/docker
