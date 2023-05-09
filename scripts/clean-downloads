@@ -1,0 +1,23 @@
+#!/bin/bash
+
+DOWNLOADS=$(xdg-user-dir DOWNLOAD)
+files_to_delete=$(find "$DOWNLOADS" -type f -atime +30)
+
+if [[ -z $files_to_delete ]]; then
+	echo "No files to delete."
+	exit 0
+fi
+
+echo "The following files will be deleted:"
+echo "$files_to_delete"
+
+read -p "Do you want to continue? (y/N): " user_response
+
+if [[ $user_response =~ ^[Yy]$ ]]; then
+	echo "$files_to_delete" | while read -r file; do
+		trash-put "$file"
+	done
+	echo "Files have been moved to the trash."
+else
+	echo "Operation cancelled."
+fi

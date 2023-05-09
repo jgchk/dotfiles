@@ -1,0 +1,7 @@
+#! /bin/bash
+
+RECORDINGS="$(xdg-user-dir VIDEOS)/Recordings"
+
+mkdir -p "$RECORDINGS"
+
+wf-recorder -g "$(slurp)" -f "$RECORDINGS/$(date +%s).mp4"

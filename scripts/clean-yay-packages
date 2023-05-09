@@ -1,0 +1,10 @@
+#!/bin/bash
+
+packages_to_remove=$(yay -Qtdq)
+if [ -z "$packages_to_remove" ]; then
+	echo "No packages to remove"
+else
+	echo "$packages_to_remove" | yay -Rns -
+fi
+
+yay -Qqd | yay -Rsu - 2> >(grep -v "warning: removing .* from target list" >&2)

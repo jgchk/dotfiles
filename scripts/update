@@ -1,0 +1,26 @@
+#!/bin/bash
+
+DEBUG=false
+FAST=false
+
+while [[ $# -gt 0 ]]; do
+	arg="$1"
+	case $arg in
+	-f | --fast)
+		FAST=true
+		shift
+		;;
+	*)
+		echo "Unknown argument: $arg"
+		exit 1
+		;;
+	esac
+done
+
+if [ "${FAST}" = false ]; then
+	mirrors
+fi
+
+yay --noconfirm
+
+clean-yay

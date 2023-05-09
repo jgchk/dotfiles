@@ -1,5 +1,13 @@
 # /bin/bash
 
+# Create local dir if it doesn't exist
+mkdir -p "$HOME"/.local
+
+# Link scripts (only if it hasn't already been linked)
+if [ ! -L "$HOME"/.local/bin ]; then
+  ln -s "$HOME"/.dotfiles/scripts/ "$HOME"/.local/bin
+fi
+
 # Create config dir if it doesn't exist
 mkdir -p "$HOME"/.config
 

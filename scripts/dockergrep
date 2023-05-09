@@ -1,0 +1,30 @@
+#! /bin/bash
+
+KILL=false
+
+while [[ $# -gt 0 ]]; do
+	arg="$1"
+	case $arg in
+	-k | --kill)
+		KILL=true
+		shift
+		;;
+	*)
+		break
+		;;
+	esac
+done
+
+id=$(docker ps | grep "$1" | cut -d " " -f 1)
+
+if [ "${KILL}" = true ]; then
+	if [ -z "${id}" ]; then
+		echo "No container found"
+		exit 1
+	fi
+
+	docker kill "${id}"
+	echo "Killed ${id}"
+else
+	echo "${id}"
+fi
