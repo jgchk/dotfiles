@@ -27,3 +27,6 @@ export PSQL_HISTORY="$XDG_DATA_HOME/psql_history"
 
 # Docker
 export DOCKER_CONFIG="$XDG_CONFIG_HOME"/docker
+
+# Use Pulse for OpenAL (Minecraft audio)
+export ALSOFT_DRIVERS=pulse
