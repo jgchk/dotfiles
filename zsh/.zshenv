@@ -30,3 +30,9 @@ export DOCKER_CONFIG="$XDG_CONFIG_HOME"/docker
 
 # Use Pulse for OpenAL (Minecraft audio)
 export ALSOFT_DRIVERS=pulse
+
+# Android Studio
+export ANDROID_HOME="$XDG_DATA_HOME"/android
+
+# GnuPG
+export GNUPGHOME="$XDG_DATA_HOME"/gnupg
