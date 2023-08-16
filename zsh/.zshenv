@@ -1,7 +1,6 @@
-# Path
+# Path init
 typeset -U path PATH
 path=(~/.local/bin $path)
-export PATH
 
 # XDG
 export XDG_CONFIG_HOME=$HOME/.config
@@ -32,7 +31,12 @@ export DOCKER_CONFIG="$XDG_CONFIG_HOME"/docker
 export ALSOFT_DRIVERS=pulse
 
 # Android Studio
-export ANDROID_HOME="$XDG_DATA_HOME"/android
+export ANDROID_HOME="$XDG_DATA_HOME"/android/Sdk
+export GRADLE_USER_HOME="$XDG_DATA_HOME"/gradle
+path=($ANDROID_HOME/platform-tools $path)
 
 # GnuPG
 export GNUPGHOME="$XDG_DATA_HOME"/gnupg
+
+# Path export
+export PATH
