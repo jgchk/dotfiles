@@ -4,18 +4,18 @@ focusedws=$(hyprctl activewindow -j | jq -c -M '.workspace.id')
 echo $focusedws
 
 if [[ "$focusedws" == 'null' ]]; then
-	echo 1
+  echo 1
 fi
 
 if [ "$1" == "--once" ]; then
-	exit 0
+  exit 0
 else
-	socat -u UNIX-CONNECT:/tmp/hypr/"$HYPRLAND_INSTANCE_SIGNATURE"/.socket2.sock - | rg --line-buffered "workspace>>" | while read -r line; do
-		case ${line%>>*} in
-		"workspace")
-			focusedws=${line#*>>}
-			echo $focusedws
-			;;
-		esac
-	done
+  socat -u UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock - | rg --line-buffered "workspace>>" | while read -r line; do
+    case ${line%>>*} in
+    "workspace")
+      focusedws=${line#*>>}
+      echo $focusedws
+      ;;
+    esac
+  done
 fi
