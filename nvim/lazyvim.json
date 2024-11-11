@@ -3,8 +3,10 @@
     "lazyvim.plugins.extras.ai.copilot",
     "lazyvim.plugins.extras.ai.copilot-chat",
     "lazyvim.plugins.extras.editor.fzf",
+    "lazyvim.plugins.extras.editor.inc-rename",
     "lazyvim.plugins.extras.lang.svelte",
-    "lazyvim.plugins.extras.lang.tailwind"
+    "lazyvim.plugins.extras.lang.tailwind",
+    "lazyvim.plugins.extras.util.mini-hipatterns"
   ],
   "news": {
     "NEWS.md": "7107"
