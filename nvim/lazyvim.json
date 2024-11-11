@@ -1,12 +1,12 @@
 {
   "extras": [
-    "lazyvim.plugins.extras.coding.copilot-chat",
     "lazyvim.plugins.extras.editor.fzf",
     "lazyvim.plugins.extras.lang.svelte",
     "lazyvim.plugins.extras.lang.tailwind"
   ],
   "news": {
-    "NEWS.md": "6520"
+    "NEWS.md": "7107"
   },
-  "version": 6
+  "version": 7
 }
+
