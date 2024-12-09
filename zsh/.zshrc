@@ -48,11 +48,11 @@ key[Shift-Tab]="${terminfo[kcbt]}"
 [[ -n "${key[PageDown]}"  ]] && bindkey -- "${key[PageDown]}"   end-of-buffer-or-history
 [[ -n "${key[Shift-Tab]}" ]] && bindkey -- "${key[Shift-Tab]}"  reverse-menu-complete
 if (( ${+terminfo[smkx]} && ${+terminfo[rmkx]} )); then
-	autoload -Uz add-zle-hook-widget
-	function zle_application_mode_start { echoti smkx }
-	function zle_application_mode_stop { echoti rmkx }
-	add-zle-hook-widget -Uz zle-line-init zle_application_mode_start
-	add-zle-hook-widget -Uz zle-line-finish zle_application_mode_stop
+    autoload -Uz add-zle-hook-widget
+    function zle_application_mode_start { echoti smkx }
+    function zle_application_mode_stop { echoti rmkx }
+    add-zle-hook-widget -Uz zle-line-init zle_application_mode_start
+    add-zle-hook-widget -Uz zle-line-finish zle_application_mode_stop
 fi
 
 # History search (https://wiki.archlinux.org/title/zsh#Key_bindings)
@@ -74,17 +74,17 @@ alias wget=wget --hsts-file="$XDG_DATA_HOME/wget-hsts"
 
 # Global functions
 config() {
-  cd "$XDG_CONFIG_HOME/$1"
+    cd "$XDG_CONFIG_HOME/$1"
 }
 proj() {
-  cd "$HOME/Projects/$1"
+    cd "$HOME/Projects/$1"
 }
 iten() {
-  local dir
-  dir=$(find ~/other-itential -maxdepth 1 -type d -not -path '*/\.*' -not -path "$HOME/other-itential" | sed "s|$HOME/other-itential/||" | grep -v "^$" | fzf --height 41% --reverse --preview 'tree -C {} | head -100')
-  if [ -n "$dir" ]; then
-      cd "$HOME/other-itential/$dir"
-  fi
+    local dir
+    dir=$(find ~/other-itential -maxdepth 1 -type d -not -path '*/\.*' -not -path "$HOME/other-itential" | sed "s|$HOME/other-itential/||" | grep -v "^$" | fzf --height 41% --reverse --preview 'tree -C {} | head -100')
+    if [ -n "$dir" ]; then
+        cd "$HOME/other-itential/$dir"
+    fi
 }
 
 # Github Copilot CLI
