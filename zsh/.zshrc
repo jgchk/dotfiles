@@ -81,7 +81,20 @@ proj() {
 }
 iten() {
     local dir
-    dir=$(find ~/other-itential -maxdepth 1 -type d -not -path '*/\.*' -not -path "$HOME/other-itential" | sed "s|$HOME/other-itential/||" | grep -v "^$" | fzf --height 41% --reverse --preview 'tree -C {} | head -100')
+
+    # Find directories and filter using fzf
+    dir=$(find ~/other-itential \
+            -maxdepth 1 \
+            -type d \
+            -not -path '*/\.*' \
+            -not -path "$HOME/other-itential" \
+            | sed "s|$HOME/other-itential/||" \
+            | grep -v "^$" \
+            | fzf --height 41% \
+            --reverse \
+        --preview 'tree -C {} | head -100')
+
+    # Change directory if selection was made
     if [ -n "$dir" ]; then
         cd "$HOME/other-itential/$dir"
     fi
