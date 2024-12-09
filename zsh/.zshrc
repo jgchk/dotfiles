@@ -79,6 +79,13 @@ config() {
 proj() {
   cd "$HOME/Projects/$1"
 }
+iten() {
+  local dir
+  dir=$(find ~/other-itential -maxdepth 1 -type d -not -path '*/\.*' -not -path "$HOME/other-itential" | sed "s|$HOME/other-itential/||" | grep -v "^$" | fzf --height 41% --reverse --preview 'tree -C {} | head -100')
+  if [ -n "$dir" ]; then
+      cd "$HOME/other-itential/$dir"
+  fi
+}
 
 # Github Copilot CLI
 eval "$(github-copilot-cli alias -- "$0")"
