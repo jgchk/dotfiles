@@ -79,26 +79,6 @@ config() {
 proj() {
     cd "$HOME/Projects/$1"
 }
-iten() {
-    local dir
-
-    # Find directories and filter using fzf
-    dir=$(find ~/other-itential \
-            -maxdepth 1 \
-            -type d \
-            -not -path '*/\.*' \
-            -not -path "$HOME/other-itential" \
-            | sed "s|$HOME/other-itential/||" \
-            | grep -v "^$" \
-            | fzf --height 41% \
-            --reverse \
-        --preview 'tree -C {} | head -100')
-
-    # Change directory if selection was made
-    if [ -n "$dir" ]; then
-        cd "$HOME/other-itential/$dir"
-    fi
-}
 
 # Github Copilot CLI
 eval "$(github-copilot-cli alias -- "$0")"
