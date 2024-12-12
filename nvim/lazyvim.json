@@ -6,6 +6,7 @@
     "lazyvim.plugins.extras.editor.fzf",
     "lazyvim.plugins.extras.lang.svelte",
     "lazyvim.plugins.extras.lang.tailwind",
+    "lazyvim.plugins.extras.lang.terraform",
     "lazyvim.plugins.extras.test.core",
     "lazyvim.plugins.extras.util.mini-hipatterns"
   ],
