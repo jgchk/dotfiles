@@ -33,6 +33,11 @@ ln -s "$HOME"/.dotfiles/nvim/ "$HOME"/.config/
 # Rofi
 ln -s "$HOME"/.dotfiles/rofi/ "$HOME"/.config/
 
+||
+
 # Zsh
 ln -s "$HOME"/.dotfiles/zsh/ "$HOME"/.config/
 ln -s "$HOME"/.dotfiles/zsh/.zshenv-bootstrap "$HOME"/.zshenv
+
+# Ghostty
+ln -s "$HOME"/.dotfiles/ghostty/ "$HOME"/.config/

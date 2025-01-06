@@ -1,0 +1,5 @@
+font-family = "FiraCode Nerd Font"
+theme = "GruvboxDark"
+window-decoration = false
+window-padding-x = 10
+window-padding-y = 10
