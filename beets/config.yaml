@@ -1,13 +1,14 @@
 directory: /mnt/monad/jake/Music
-library: ~/.config/beets/library.db
+library: /mnt/monad/jake/Applications/beets/library.db
+# library: ~/Downloads/library.db
 
 import:
   move: yes
 
-plugins: edit fetchart embedart badfiles replaygain spotify discogs bandcamp zero
+plugins: edit fetchart embedart badfiles replaygain spotify bandcamp zero unimported missing duplicates
 
 embedart:
-  remove_art_file: yes
+  remove_art_file: no
 
 replaygain:
   backend: ffmpeg
@@ -20,6 +21,8 @@ badfiles:
   commands:
     ogg: oggz validate
     opus: opusinfo -q
+    m4a: ffprobe -v error -show_streams -show_packets
+    m4v: ffprobe -v error -show_streams -show_packets
 
 zero:
   fields: genre
