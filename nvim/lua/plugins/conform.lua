@@ -12,6 +12,7 @@ return {
         javascriptreact = prettier_with_lsp,
         typescript = prettier_with_lsp,
         typescriptreact = prettier_with_lsp,
+        svelte = prettier_with_lsp,
       },
     },
   },
