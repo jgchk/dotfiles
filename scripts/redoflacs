@@ -1,0 +1,3088 @@
+#!/usr/bin/env bash
+#
+# NAME
+#   redoflacs - BASH commandline FLAC compressor, verifier, organizer,
+#               analyzer, and retagger
+#
+# FILE INFORMATION
+#   Homepage:      https://github.com/sirjaren/redoflacs
+#   Dependencies:  BASH >= 4.0
+#
+# DISTRIBUTION
+#   The MIT License
+#
+#   Copyright 2025 Project Authors
+#
+#   Permission is hereby granted, free of charge, to any person
+#   obtaining a copy of this software and associated documentation files
+#   (the "Software"), to deal in the Software without restriction,
+#   including without limitation the rights to use, copy, modify, merge,
+#   publish, distribute, sublicense, and/or sell copies of the Software,
+#   and to permit persons to whom the Software is furnished to do so,
+#   subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be
+#   included in all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+#   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+#   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+#   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#   SOFTWARE.
+#
+
+#############################  FUNCTIONS  ##############################
+
+#
+# Convenience functions to provide messages to the user with colored
+# prefixes to indicate message severity, eg:
+#   _warn 'This is obsolete'
+#
+# Creates a messsage like (with a yellow asterisk):
+#    * This is obsolete
+#
+_info() { printf ' %s %b\n' "$green*$reset" "$@"; }      # Green
+_warn() { printf >&2 ' %s %b\n' "$yellow*$reset" "$@"; } # Yellow
+_error() { printf >&2 ' %s %b\n' "$red*$reset" "$@"; }   # Red
+
+#
+# Display help
+#
+_help() {
+  cat <<HELP_EOF
+Usage: redoflacs [operations] [options] [target]
+
+Operations:
+  -c       Compress FLAC files
+  -C       Compress FLAC files (even if COMPRESSION tag already exists)
+  -t       Test integrity of FLAC files
+  -m       Check for a valid MD5 signature in FLAC files' STREAMINFO block
+  -a       Use auCDtect to authenticate FLAC files
+  -A       Use auCDtect to authenticate FLAC files (create spectrogram)
+  -l       Use LAC to authenticate FLAC files
+  -L       Use LAC to authenticate FLAC files (create spectrogram)
+  -e       Extract all embedded artwork from FLAC files
+  -p       Remove metadata blocks from FLAC files (PADDING, PICTURE, etc)
+  -g       Apply ReplayGain to FLAC files
+  -G       Apply ReplayGain to FLAC files (even if ReplayGain tags exist)
+  -r       Retag FLAC files preserving user-defined tags
+
+Options:
+  -j[N]    Allow N jobs at once (default: all cores, or 2 if unknown)
+  -J[N]    Allow N jobs for compression >= FLAC 1.5.0 (default: cores/threads)
+  -T[N]    Allow N threads for compression >= FLAC 1.5.0 (default: 2)
+  -n       Disable color output
+  -x       Do not apply COMPRESSION tag when compressing FLAC files
+  -o       Generate a new configuration file and exit
+  -v       Print the version number of redoflacs and exit
+  -h       Print this message and exit
+
+See redoflacs(1) for more information.
+HELP_EOF
+}
+
+#
+# Display usage
+#
+_usage() {
+  printf >&2 ' Usage: redoflacs [operations] [options] [target] ...\n'
+}
+
+#
+# Display a message that there may have been some issues that is worth
+# investigating for a given operation and where the log file to review
+# said issues can be found
+#
+_display_issues_exist() {
+  # Operation-specific messaging
+  case "$operation" in
+  '_md5check')
+    _error 'The MD5 Signature is unset for some FLAC files or there were'
+    _error 'issues with some of the FLAC files, please check:'
+    ;;
+  '_test' | '_compress' | '_extract_images' | '_prune')
+    _error 'There were issues with some of the FLAC files, please check:'
+    ;;
+  '_aucdtect')
+    _error 'Some FLAC files may be lossy sourced, please check:'
+    ;;
+  '_replaygain')
+    _error 'There were issues adding ReplayGain values, please check:'
+    ;;
+  '_retag')
+    _error 'Some FLAC files have missing tags or there were issues with some'
+    _error 'of the FLAC files, please check:'
+    ;;
+  esac
+
+  _error "${cyan}${log_file}$reset"
+  _error 'for details.'
+}
+
+#
+# Display a banner before script execution which shows all options
+# configured as well as runtime information
+#
+# The structure of the banner:
+#
+#   --------------------------------------------------------------------
+#                           Runtime Information
+#   --------------------------------------------------------------------
+#                           redoflacs 1.0
+#                                FLAC 1.5.0
+#                         Global Jobs 16
+#                    Compression Jobs 8
+#                 Compression Threads 2
+#   --------------------------------------------------------------------
+#                 Configuration Options (<config_path>)
+#   --------------------------------------------------------------------
+#                    preserve_modtime true
+#                        prepend_zero true
+#                   compression_level 8
+#                      remove_artwork true
+#                          skip_lossy true
+#                           error_log <default>
+#              temporary_wav_location <default>
+#                spectrogram_location <default>
+#                    artwork_location <default>
+#   --------------------------------------------------------------------
+#
+# Where the width of the banner is dynamically sized to the width of the
+# terminal or to the maximum length supported on script execution
+#
+_runtime_banner() {
+  local i option field value line align_cpu job_type
+
+  # Generate a blue line the which matches the maximum length supported
+  printf -v line "%$((MAX_LENGTH - 1))s" ''
+  line="${blue}${line// /-}$reset"
+
+  # Replace $HOME with tilde
+  local config_file_title="$config_file"
+  config_file_title="~${config_file_title#"$HOME"}"
+
+  # Dynamically center banner config title
+  local config_title="Configuration Options ($config_file_title)"
+  local config_title_center=$(((MAX_LENGTH / 2) - (${#config_title} / 2)))
+
+  # Dynamically center banner runtime title
+  local runtime_title='Runtime Information'
+  local runtime_title_center=$(((MAX_LENGTH / 2) - (${#runtime_title} / 2)))
+
+  # Dynamically center configuration and runtime options and values
+  #
+  # NOTE
+  #   The '- 1' accounts for space between field and value
+  local fields_center=$(((MAX_LENGTH / 2) - 1))
+
+  # Runtime information
+  printf '%s\n' "$line"
+  printf "\033[$(_row);${runtime_title_center}H%s\n" "$runtime_title"
+  printf '%s\n' "$line"
+
+  # Display centered script runtime information
+  printf "%${fields_center}s ${cyan}%s${reset}\n" 'redoflacs' "$script_version"
+  printf "%${fields_center}s ${cyan}%s${reset}\n" 'FLAC' "$flac_version"
+
+  # Multithreaded FLAC distinguishes global jobs from jobs
+  [[ "$multithreaded_flac" ]] && job_type='Global Jobs' || job_type='Jobs'
+
+  # Choose the longest character value between all jobs and threads
+  align_cpu="${#compress_jobs}"
+  ((align_cpu < ${#compress_threads})) && align_cpu="${#compress_threads}"
+  ((align_cpu < ${#global_jobs})) && align_cpu="${#global_jobs}"
+
+  # Let the user know of possible CPU starvation if the number of global
+  # jobs is higher than total cores available
+  if [[ "$cpu_job_starvation" ]]; then
+    printf \
+      "%${fields_center}s ${red}%-${align_cpu}s$reset ${yellow}%s$reset\n" \
+      "$job_type" "$global_jobs" '(CPU Starvation Risk!)'
+
+  # Display jobs which appear to be reasonable
+  else
+    printf "%${fields_center}s ${cyan}%s${reset}\n" "$job_type" "$global_jobs"
+  fi
+
+  # Let the user know of possible CPU starvation if the number of
+  # compression jobs and compression threads specified are higher than
+  # total cores available
+  if [[ "$multithreaded_flac" && "$cpu_thread_starvation" ]]; then
+    printf \
+      "%${fields_center}s ${red}%-${align_cpu}s$reset ${yellow}%s${reset}\n" \
+      'Compression Jobs' "$compress_jobs" '(CPU Starvation Risk!)'
+
+    printf \
+      "%${fields_center}s ${red}%-${align_cpu}s$reset ${yellow}%s${reset}\n" \
+      'Compression Threads' "$compress_threads" '(CPU Starvation Risk!)'
+
+  # Display compression jobs and compression threads which appear to be
+  # reasonable
+  elif [[ "$multithreaded_flac" ]]; then
+    printf "%${fields_center}s ${cyan}%s${reset}\n" \
+      'Compression Jobs' "$compress_jobs"
+    printf "%${fields_center}s ${cyan}%s${reset}\n" \
+      'Compression Threads' "$compress_threads"
+  fi
+
+  # Configuration options
+  printf '%s\n' "$line"
+  printf "\033[$(_row);${config_title_center}H%s\n" "$config_title"
+  printf '%s\n' "$line"
+
+  # Display all configured options, centered
+  for option in "${config_options[@]}"; do
+    # Option field (shell variable)
+    field="${option%%=*}"
+
+    # Option value (shell variable value), with a default if empty
+    value="${!field:-${magenta}<default>${reset}}"
+
+    # Eg: $HOME -> ~/
+    # shellcheck disable=SC2088
+    [[ "$value" == "$HOME" ]] && value='~/'
+
+    # Eg: $HOME/user/dir -> ~/user/dir
+    # shellcheck disable=SC2088
+    [[ "$value" == "$HOME"/* ]] && value="~/${value#"$HOME"/}/"
+
+    # Display centered configuration option and value
+    printf "%${fields_center}s ${cyan}%s${reset}\n" "$field" "$value"
+  done
+
+  printf '%s\n' "$line"
+}
+
+#
+# Print out current operation title
+#
+# The structure of an operation title:
+#
+#   '<prefix> <title>                   (<status>) (<number_of_issues>)'
+#
+# Which may look like:
+#
+#   '* Verifying MD5...                                       COMPLETED'
+#   '* Testing...                                   COMPLETED 10 issues'
+#   '* Pruning METADATA...                                  INTERRUPTED'
+#   '* Compressing To Level 8...                   INTERRUPTED 1 issues'
+#   '* Extracting Images...                                 DID NOT RUN'
+#
+# Where the status may or may not be displayed and/or the number of
+# issues may or may not be displayed
+#
+_operation_title() {
+  local fmt status_banner issues_banner right_align
+
+  # Total number of issues found
+  local -i issues
+  issues="$(_num_issues)"
+
+  # Ensure we do not run if running from a countdown or before an
+  # operation begins (only if SIGINT was sent during these times)
+  [[ "${FUNCNAME[1]}" == '_cleanup' && -z "$operation" ]] && return 0
+
+  # Generate a banner indicating total issues found so far
+  if ((issues > 0)); then
+    issues_banner="$issues issue"
+
+    # Add plural for more than one issue found
+    ((issues != 1)) && issues_banner+='s'
+  fi
+
+  # Generate an interrupted banner if the user sent SIGINT otherwise
+  # default to a completed status
+  #
+  # NOTE:
+  #   The parent function will be the signal handler for SIGINT
+  if [[ "${FUNCNAME[1]}" == '_cleanup' ]]; then
+    status_banner='INTERRUPTED'
+
+    # Add an extra space to separate issues banner if it exists
+    ((issues > 0)) && status_banner+=' '
+
+  # Generate a completed banner if the current operation finished
+  # processing all items
+  elif ((num == ${#total_items[@]})); then
+    status_banner='COMPLETED'
+
+    # Add an extra space to separate issues banner if it exists
+    ((issues > 0)) && status_banner+=' '
+  fi
+
+  # Determine where to place cursor in terminal column to right align
+  # possible SIGINT interruption and the number of issues to display
+  right_align=$((MAX_LENGTH - ${#status_banner} - ${#issues_banner}))
+
+  fmt+=$"\033[${title_row}H" # Cursor row; beginning of line
+  fmt+=" ${green}*$reset "   # Colored title prefix
+  fmt+='%s'                  # Modifier; title of operation
+
+  # Cursor at operation title; right-aligned for issues banner
+  fmt+=$"\033[${title_row};${right_align}H"
+
+  # These may not be displayed if no issues, no SIGINT, or not completed
+  if [[ "$status_banner" == 'INTERRUPTED'* ]]; then
+    fmt+="${cyan}${status_banner}$reset" # Interrupted banner
+  else
+    fmt+="${green}${status_banner}$reset" # Completed banner
+  fi
+  fmt+="${red}${issues_banner}$reset\n" # Issues banner
+
+  # Display generated operation title message
+  # shellcheck disable=SC2059
+  printf "$fmt" "${operation_title[$operation]}"
+}
+
+#
+# Displays the currently processed item on a dedicated row within the
+# terminal
+#
+# The filename is truncated if the length of the filename is greater
+# than 80 characters or if greater than the width of the terminal if
+# that terminal width is less than 80. This width is set by 'MAX_LENGTH'
+#
+# Filename truncation also occurs to allow the operation label (via $1)
+# and the total number of completed items to be displayed on the same
+# row as the displayed item
+#
+# The structure of a displayed item:
+#   '<percent> <basename>          <operation_label> <number_completed>'
+#
+# Which may look like:
+#   '     06 - Some Amazing Song.flac                     Testing  6/20'
+#
+# This function does NOT create the display the percentage completed.
+# That is handled later
+#
+# The file basename is left-aligned (leaving room for the percentage),
+# while the operation label and total number of completed items are
+# right-aligned
+#
+# An example of filename truncation:
+#   '01 - This is a long name showing truncation.flac'
+#
+# This filename would be displayed during an operation as:
+#   '     01 - This is a long name showing truncation.fla Testing  6/20'
+#
+# An example of how this would look with a percentage displayed:
+#   ' 56% 01 - This is a long name showing truncation.fla Testing  6/20'
+#
+_print_item() {
+  local fmt truncated
+  local basename="${item##*/}"
+  local label="${1:+ $1}" # Operation label (with leading space)
+
+  # The total number of items out of the total number of items, used to
+  # determine the maximum width these values can use, eg:
+  #   ' 237/237'
+  #
+  # The leading space is intentional, to ensure a space is between the
+  # item basename and this value
+  local total=" ${#total_items[@]}/${#total_items[@]}"
+
+  # This is the column position after the item basename is displayed.
+  # This allows the operation label and total number of completed items
+  # to be displayed after this column, effectively truncating the
+  # current item if longer than this column position
+  #
+  # NOTE:
+  #   The item basename may be longer than the terminal width, which is
+  #   why line wrapping is disabled and restored, to prevent the display
+  #   of the item basename from traversing multiple lines
+  truncated="$((MAX_LENGTH - ${#total} - ${#label}))"
+
+  # Disable line wrapping if enabled
+  [[ "$LINE_WRAPPING" ]] && fmt+=$'\033[?7l'
+
+  # Belows builds the 'printf' format string
+  fmt+=$"\033[${row};6H"            # Cursor row; 6 columns to right
+  fmt+=$"\033[0K"                   # Erase line from cursor to right
+  fmt+='%s'                         # Modifier; Current item basename
+  fmt+=$"\033[${row};${truncated}H" # Cursor row; Move to allow items
+  fmt+=$"\033[0K"                   # Erase line from cursor to right
+  fmt+="${magenta}%s"               # Modifier; Operation label
+  fmt+="${cyan}%${#total}s${reset}" # Modifier; Items, right-aligned
+
+  # Restore line wrapping if enabled
+  [[ "$LINE_WRAPPING" ]] && fmt+=$'\033[?7h'
+
+  # Displays formatted, currently processed item
+  # shellcheck disable=SC2059
+  printf "$fmt" "$basename" "$label" "${num}/${#total_items[@]}"
+}
+
+#
+# These functions are used after '_print_item()' to update/indicate the
+# status of a given item in an operation
+#
+_print_item_ok() { printf '%b' "\033[${row}H${green}100%$reset"; }
+_print_item_fail() { printf '%b' "\033[${row}H${red}fail$reset"; }
+_print_item_check() { printf '%b' "\033[${row}H${yellow}chck$reset"; }
+_print_item_half() { printf '%b' "\033[${row}H$yellow 50%$reset"; }
+_print_item_skip() { printf '%b' "\033[${row}H${cyan}skip$reset"; }
+
+#
+# Manage termination and cleanup of this script
+#
+# The signal processed by this function is via $exit_code, which, if
+# non-zero, is from a trap capturing a termination signal
+#
+# Abnormal signals caught will perform cleanup by removing files and
+# killing any jobs which may be running
+#
+# On script end, any operation that was not run is displayed, eg:
+#
+#   '* Testing...                                   COMPLETED 10 issues'
+#   '* Compressing To Level 8...                            DID NOT RUN'
+#   '* Retagging...                                         DID NOT RUN'
+#   '* Pruning METADATA...                                  DID NOT RUN'
+#
+_cleanup() {
+  local i fmt op match status_banner right_align
+
+  # Total number of issues found
+  local -i issues
+  issues="$(_num_issues)"
+
+  # If this global variable is non-zero, a trap caught an abnormal
+  # signal and redefined it to an exit code value matching the signal
+  # received
+  if ((exit_code != 0)); then
+    _operation_title         # Display operation was interrupted
+    _kill_jobs "$(jobs -rp)" # Kill any running jobs
+
+    # Clear all the operation lines by moving up each line and clearing
+    # it until we are just below the operation's title message
+    for ((i = 1; i <= items_processed; i++)); do
+      printf '%b' "\033[$((post_row - i))H\033[0K"
+    done
+
+    # Remove temporary WAV and FLAC files
+    rm -rf "${temporary_wav_location_sub_dir:-/dev/null/foo}"
+    rm -f "${directory:-/dev/null/foo}"/**/*_redoflacs_$$.wav
+    rm -f "${directory:-/dev/null/foo}"/**/*.tmp,fl-ac+en\'c
+
+    # Remove temporary picture blocks (from artwork extraction)
+    rm -f /tmp/redoflacs_picture_blocks.[[:digit:]]*
+  fi
+
+  # Due to catching an abnormal signal or if there were issues found,
+  # loop through all operations and display any operation which did not
+  # run
+  for op in "${operations[@]}"; do
+    # Matched operation is either interrupted or completed with issues
+    [[ "$op" == "$operation" ]] && match='true' && continue
+
+    # Skip completed operations (without issues)
+    [[ ! "$match" ]] && continue
+
+    status_banner='DID NOT RUN'
+
+    # Determine where to place cursor in terminal column to right
+    # align the operation status
+    right_align=$((MAX_LENGTH - ${#status_banner}))
+
+    fmt=" ${green}*$reset " # Colored title prefix
+    fmt+='%s'               # Modifier; title of operation
+
+    # Cursor at operation title; right-aligned for issues banner
+    fmt+=$"\033[$(_row);${right_align}H"
+
+    # Operation status banner
+    fmt+="${magenta}${status_banner}$reset\n"
+
+    # Display generated operation title message
+    # shellcheck disable=SC2059
+    printf "$fmt" "${operation_title[$op]}"
+  done
+
+  # Ensure user is notified of a log file on script interruption/exit
+  [[ -f "$log_file" ]] && _display_issues_exist
+
+  # Remove temporary job FIFO and temporary errors/issues file
+  rm -f "${job_fifo:-/dev/null/foo}"
+  rm -f "${issue_ticks:-/dev/null/foo}"
+
+  # Restore terminal cursor
+  printf '\033[?25h'
+
+  # Issues found without an abnormal signal
+  ((exit_code == 0 && issues > 0)) && exit_code=1
+}
+
+#
+# Kill any children process (obtained via $@), hiding errors and
+# suppressing the shell's notification of terminated jobs
+#
+_kill_jobs() {
+  local pid
+
+  for pid in "$@"; do
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  done
+}
+
+#
+# Return the current cursor's row position by sending the following
+# control sequence to the controlling terminal:
+#   CSI 6 n            # Query cursor position
+#
+# Which reports/returns the cursor position/terminal size as:
+#   CSI height ; width R  # eg. '\033[80;23R'
+#
+_row() {
+  local -i row
+
+  # Send CSI escape to (and read from) STDERR to not pollute STDIN
+  IFS='[;' read -rsu2 -d'R' -t1 -p $'\033[6n' _ row _
+
+  printf '%d' "${row:-0}" # Default to 0, if failure
+}
+
+#
+# Return the current cursor's column position by sending the following
+# control sequence to the controlling terminal:
+#   CSI 6 n            # Query cursor position
+#
+# Which reports/returns the cursor position/terminal size as:
+#   CSI height ; width R  # eg. '\033[80;23R'
+#
+_col() {
+  local -i col
+
+  # Send CSI escape to (and read from) STDERR to not pollute STDIN
+  IFS='[;' read -rsu2 -d'R' -t1 -p $'\033[6n' _ _ col
+
+  printf '%d' "${col:-0}"
+}
+
+#
+# If necessary, scroll the terminal
+#
+_scroll_terminal() {
+  local -i row to_scroll fmt
+
+  # Obtain current row position
+  row="$(_row)"
+
+  # Default to scrolling the terminal based on the number of jobs
+  to_scroll="$operation_jobs"
+
+  # Scrolling by number of items to process
+  ((operation_jobs > ${#total_items[@]})) && to_scroll="${#total_items[@]}"
+
+  # Only scroll if there are more items to display than lines available
+  if ((--to_scroll > (lines - row))); then
+    # Scroll terminal the required number of lines
+    printf '%b' "\033[$((to_scroll - (lines - row)))S"
+
+    # Place cursor back to where it was in relation to current output
+    printf '%b' "\033[$((lines - to_scroll))H"
+  fi
+}
+
+#
+# Create a configuration file
+#
+_create_config() {
+  local -i item=0
+
+  # Ensure the parent directory exists
+  mkdir -p "${config_file%/*}"
+
+  # If there already is a configuration file, do not overwrite it
+  until [[ ! -f "$config_file" ]]; do
+    config_file="${HOME}/.config/redoflacs/config.$((++item))"
+  done
+
+  # Don't expand variables when using heredoc
+  cat >"$config_file" <<"END_OF_CONFIG"
+#
+# redoflacs configuration
+#
+# Any line that is _NOT_ prepended with a '#' will be interpreted as an option
+# (except for blank lines -- these are not interpreted)
+#
+#------------------------------------------------------------------------------
+# TAGGING SECTION
+#------------------------------------------------------------------------------
+#
+# List the tags to be kept in each FLAC file. The default is listed below.
+#
+# Another common tag not added by default is ALBUMARTIST. Uncomment ALBUMARTIST
+# below to allow script to keep this tag.
+#
+# NOTE: Whitespace _IS_ allowed for the these tag fields, ie:
+#   ALBUM ARTIST
+#   CATALOG NUMBER ISBN
+#
+TITLE
+ARTIST
+#ALBUMARTIST
+ALBUM
+DISCNUMBER
+DATE
+TRACKNUMBER
+TRACKTOTAL
+GENRE
+
+# The COMPRESSION tag is a custom tag to allow the script to determine which
+# level of compression the FLAC file(s) has/have been compressed at.
+COMPRESSION
+
+# The RELEASETYPE tag is a custom tag the author of this script uses to
+# catalog what kind of release the album is (ie, Full Length, EP, Demo, etc.).
+RELEASETYPE
+
+# The SOURCE tag is a custom tag the author of this script uses to catalog
+# which source the album has derived from (ie, CD, Vinyl, Digital, etc.).
+SOURCE
+
+# The MASTERING tag is a custom tag the author of this script uses to catalog
+# how the album has been mastered (ie, Lossless, or Lossy).
+MASTERING
+
+# The REPLAYGAIN tags below, are added by the '-g' or '-G' argument.
+# If you want to keep the ReplayGain tags, make sure you leave these here.
+REPLAYGAIN_REFERENCE_LOUDNESS
+REPLAYGAIN_TRACK_GAIN
+REPLAYGAIN_TRACK_PEAK
+REPLAYGAIN_ALBUM_GAIN
+REPLAYGAIN_ALBUM_PEAK
+
+#------------------------------------------------------------------------------
+# OPTIONS
+#------------------------------------------------------------------------------
+#
+# The options listed below are shell syntax where option values are
+# evaluated/interpolated as expected with the caveat that command substitutions
+# are not allowed, eg:
+#
+#   error_log='$HOME/logs'            # $HOME/logs
+#   error_log='${HOME}/logs'          # ${HOME}/logs
+#   error_log="$HOME/logs"            # /home/user/logs
+#   error_log="${HOME}/logs"          # /home/user/logs
+#   error_log="$(pwd)/logs"           # $(pwd)/logs
+#   error_log="`pwd`/logs"            # `pwd`/logs
+#   error_log="${HOME}/$(date)/logs"  # ${HOME}/$(date)/logs
+#   error_log='${HOME}/$(date)/logs'  # ${HOME}/$(date)/logs
+#
+# Any single quoted value and values with command substitutions are treated as
+# literal strings.
+#
+#------------------------------------------------------------------------------
+#
+# PRESERVE FILE MODIFICATION TIME:
+#
+# Changes whether both 'flac' and 'metaflac' programs ensure the updated files
+# have the same timestamps/permissions as the input files.
+#
+# For 'flac' usage, this is the default, but 'metaflac' does update timestamps
+# and permissions.
+#
+# This is enabled by setting 'preserve_modtime' option as 'true'. All other
+# values are interpreted as 'false'.
+#
+preserve_modtime='true'
+
+#
+# PREPEND TRACK NUMBER:
+#
+# Change whether the retag (-r) operation will re-tag singular track numbers
+# and track totals from:
+#    1, 2, 3, 4, 5, 6, 7, 8, 9
+# to
+#    01, 02, 03, 04, 05, 06, 07, 08, 09
+#
+# For example, if you had:
+#    TRACKNUMBER=4
+#     TRACKTOTAL=9
+#
+# You would end up with:
+#    TRACKNUMBER=04
+#     TRACKTOTAL=09
+#
+# This is enabled by setting 'prepend_zero' option as 'true'. All other values
+# are interpreted as 'false'.
+#
+prepend_zero='false'
+
+#
+# SET COMPRESSION:
+#
+# Set the type of COMPRESSION strength when compressing the FLAC files. Numbers
+# range from '1-8', with '1' being the lowest compression and '8' being the
+# highest compression. The default is '8'.
+#
+compression_level='8'
+
+#
+# REMOVE ARTWORK:
+#
+# Set whether to remove embedded artwork within FLAC files. By default, this
+# script will remove any artwork it can find in the PICTURE block of a FLAC
+# file. Set 'remove_artwork' as 'true' to remove embedded artwork. All other
+# values are intepreted as 'false'.
+#
+remove_artwork='true'
+
+#
+# AUCDTECT/LAC SKIP LOSSY:
+#
+# Set whether FLAC files should be skipped if the MASTERING tag is already set
+# as 'Lossy' when analyzed with auCDtect or LAC. Set 'skip_lossy' as 'true' to
+# skip FLAC files that have the tag: 'MASTERING=Lossy'. All other values are
+# intepreted as 'false'.
+#
+skip_lossy='true'
+
+#
+# ERROR LOG DIRECTORY:
+#
+# Set where you want error logs to be placed. By default, they are stored in
+# the user's HOME directory.
+#
+# All values for 'error_log' are interpreted as a directory. If left blank, the
+# default location will be used.
+#
+error_log=''
+
+#
+# WAV FILE DIRECTORY
+#
+# Set where to place temporary created WAV files when decoding FLAC files for
+# use with auCDtect or LAC (Lossless Audio Checker).
+#
+# By default the WAV file is created in the same location as the FLAC file and
+# removed when the operation is completed for that file.
+#
+# Users may prefer to place all WAV files on TMPFS backed storage or some other
+# location depending on their use case.
+#
+# All values for 'temporary_wav_location' are interpreted as a directory. If
+# left blank, the default location will be used.
+#
+# NOTE:
+#   Setting this value to a directory on a filesystem with minimal space may
+#   increase the chance of filesystem exhaustion if running with a large number
+#   of parallel jobs
+#
+temporary_wav_location=''
+
+#
+# SPECTROGRAM DIRECTORY:
+#
+# Set where created spectrogram images should be stored. By default, they are
+# stored in the same directory as the analyzed FLAC files. Each image will have
+# the same name as the tested FLAC file but with an integer-based suffix to
+# allow for uniqueness. The type of image created is PNG.
+#
+# All values for 'spectrogram_location' are interpreted as a directory. If left
+# blank, the default location will be used.
+#
+# An example of a user-defined location:
+#
+#    spectrogram_location="${HOME}/specs"
+#
+# Example spectrogram:
+#
+#    ${HOME}/specs/music/artist/album/file.flac.spec.png.0
+#
+spectrogram_location=''
+
+#
+# EXTRACTED ARTWORK DIRECTORY:
+#
+# Set where the extracted artwork images should be stored.
+#
+# By  default, each extracted image will be placed in a subdirectory where the
+# FLAC file is located. The subdirectory housing the extracted artwork will
+# have a similar name as the currently processed FLAC. If a directory already
+# exists, an integer is appended to the directory (to prevent overwriting and
+# mixing files). For example:
+#
+#    /music/artist/album/file.flac          # FLAC file with embedded images
+#    /music/artist/album/file.flac.art.0/   # Directory housing artwork
+#    /music/artist/album/file.flac.art.1/   # '1' if above directory exists
+#    /music/artist/album/file.flac.art.2/   # '2' if above directory exists
+#
+# All values for 'artwork_location' are interpreted as a directory. If left
+# blank, the default location will be used.
+#
+# If there is a user-defined location, the extracted images will be placed in a
+# subdirectory in that location with a naming scheme similar to above:
+#
+#    artwork_location="${HOME}/artwork"    # User-defined configuration option
+#    /music/artist/album/file.flac         # FLAC file with embedded artwork
+#
+#    # Directory housing artwork (incremented if already existing)
+#    ${HOME}/artwork/music/artist/album/file.flac.art.0/
+#    ${HOME}/artwork/music/artist/album/file.flac.art.1/
+#    ${HOME}/artwork/music/artist/album/file.flac.art.2/
+#
+artwork_location=''
+END_OF_CONFIG
+
+  # Indicate if there was an existing configuration file
+  if [[ "$config_file" =~ ^.+[[:digit:]]$ ]]; then
+    _warn 'An existing configuration file is here:'
+    _warn "${cyan}${config_file%.*}$reset\n"
+
+    _info 'A new configuration file was created here:'
+    _info "${cyan}${config_file}$reset\n"
+
+    _info 'Ensure the new configuration file is copied here:'
+    _info "${cyan}${config_file%.*}$reset\n"
+
+    _info 'In order for this program to make use of it'
+
+  # No existing configuration file was found, indicate review of file
+  else
+    _info 'A configuration file has been created here:'
+    _info "${cyan}${config_file}$reset\n"
+
+    _info 'It is recommended to review the new configuration file before'
+    _info 'running this program.'
+  fi
+}
+
+#
+# Parse the configuration file
+#
+_parse_config() {
+  local line option value valid_option
+
+  # Used to check for missing, but required, configuration options
+  local -a missing_options
+
+  # Used in 'flac' and 'metaflac' invocations
+  local -ga flac_extra_options metaflac_extra_options
+
+  # Used in _retag() function
+  local -ga tags_to_keep
+
+  # Used in script banner
+  local -ga config_options
+
+  # Skip irrelevant configuration file lines
+  local regex_skip='^([[:space:]]+|#.*|)$'
+
+  # Matches on configuration options (shell variables)
+  local regex_options='^([^[:space:]]+=.*)$'
+
+  # Matches on possible command substitutions in option values
+  local regex_cmds='\$\(|`'
+
+  # Unnecessary, as these variables are dynamically exported from the
+  # config but are defined to silence shellcheck of unused variables
+  local -g \
+    preserve_modtime \
+    prepend_zero \
+    compression_level \
+    remove_artwork \
+    skip_lossy \
+    error_log \
+    temporary_wav_location \
+    spectrogram_location \
+    artwork_location
+
+  # Key/value associative array used to evaluate valid/missing options
+  local -A valid_config_options
+  valid_config_options=(
+    [preserve_modtime]='true'
+    [prepend_zero]='true'
+    [compression_level]='true'
+    [remove_artwork]='true'
+    [skip_lossy]='true'
+    [error_log]='true'
+    [temporary_wav_location]='true'
+    [spectrogram_location]='true'
+    [artwork_location]='true'
+  )
+
+  # Process the configuration file, storing all user-defined tags and
+  # evaluate each configuration option
+  while IFS=$'\n' read -r line; do
+    # Skip empty lines, comment lines and lines with whitespace
+    [[ "$line" =~ $regex_skip ]] && continue
+
+    # Non-option (shell variables) are treated as user-defined FLAC tags
+    if [[ ! "$line" =~ $regex_options ]]; then
+      # FLAC tags stored into a global array
+      tags_to_keep+=("${line^^}")
+      continue
+    fi
+
+    # Skip if option is not part of the valid options
+    [[ ! "${valid_config_options["${line%%=*}"]}" ]] && continue
+
+    # Store configuration option key/value
+    config_options+=("$line")
+
+    # Break up line into shell variable and value
+    IFS='=' read -r option value <<<"$line"
+
+    # Remove leading/trailing whitespace from value (if any)
+    IFS=$' \t\n' read -r value <<<"$value"
+
+    # Do not interpolate value if single quotes are around value
+    if [[ "$value" =~ ^\'.*\'$ ]]; then
+      # Remove single quotes from value
+      value="${value#\'}"
+      value="${value%\'}"
+
+      # Set configuration option and value into environment
+      export "$option"="$value"
+      continue
+    fi
+
+    # Remove double quotes from value (if any)
+    value="${value#\"}"
+    value="${value%\"}"
+
+    # Do not interpolate possible command subsitutions and only
+    # interpolate values which contain a variable prefix
+    #
+    # NOTE:
+    #   BASH >= 4.4.x allows for parameter transformations which are
+    #   safer than using 'eval'
+    if [[ ! "$value" =~ $regex_cmds && "$value" == *\$* ]]; then
+      if ((${BASH_VERSINFO[0]}${BASH_VERSINFO[1]} >= 44)); then
+        value="${value@P}" # Expand like a prompt string
+      else
+        value="$(eval "printf '%s' \"$value\"" 2>/dev/null)"
+      fi
+    fi
+
+    # Interpolate configuration option and value into environment
+    export "$option"="$value"
+  done <"$config_file"
+
+  # Look for any missing options in the user's configuration file and
+  # notify the user
+  for valid_option in "${!valid_config_options[@]}"; do
+    if [[ " ${config_options[*]%%=*} " != *" $valid_option "* ]]; then
+      missing_options+=("$valid_option")
+    fi
+  done
+
+  # Exit if there were any missing options from the configuration file
+  if [[ "${missing_options[*]}" ]]; then
+    _error 'The following required options are missing:'
+    for option in "${missing_options[@]}"; do
+      _error "  ${cyan}${option}$reset"
+    done
+
+    _error
+
+    _error 'Recreate a configuration file (non-destructive) via:'
+    _error "  ${cyan}redoflacs -o $reset"
+    exit 1
+  fi
+
+  # Handle timestamp preseveration for both 'flac' and 'metaflac'
+  if [[ "${preserve_modtime,,}" == 'true' ]]; then
+    flac_extra_options+=('--preserve-modtime')
+    metaflac_extra_options+=('--preserve-modtime')
+
+  # Metaflac defaults to not preserving modification times and does not
+  # have a flag to turn preservation off
+  else
+    flac_extra_options+=('--no-preserve-modtime')
+  fi
+}
+
+#
+# Display countdown before retagging to allow user to quit script safely
+#
+_countdown_metadata() {
+  # Warning message
+  _error "${yellow}CAUTION!${reset} These are the tag fields that will be kept"
+  _error 'when re-tagging the selected files:\n'
+
+  # Creates the listing of tags to be kept
+  printf '     %s\n' "${tags_to_keep[@]}"
+  printf '\n'
+
+  # Warning message about embedded coverart
+  _error "By default, this script will ${red}REMOVE${reset} the legacy"
+  _error "${cyan}COVERART${reset} tag.\n"
+
+  _error "Add the ${cyan}COVERART${reset} tag to the list of tags to be kept"
+  _error "in the ${cyan}TAGGING SECTION${reset} of the configuration file.\n"
+
+  _error "Keep in mind, if the ${cyan}remove_artwork${reset} option is set to"
+  _error "${cyan}false${reset}, embedded artwork in the ${cyan}PICTURE${reset}"
+  _error "block will be kept when using the ${cyan}-p, --prune${reset} option"
+  _error "as well.\n"
+
+  _warn "Waiting ${red}20${reset} seconds before starting program..."
+  _warn 'Ctrl+C (Control-C) to abort...\n'
+
+  printf '%b' " ${green}*${reset} Starting in: "
+
+  # 10 second countdown
+  for count in {20..1}; do
+    printf "${red}%d ${reset}" "$count"
+    read -rt1 # Sleep 1
+  done
+  printf '\n'
+}
+
+#
+# Return an integer detailing the number of issues an operation may have
+# had, returning '0', if no issues were found
+#
+_num_issues() {
+  local ticks
+
+  # Read in number of issue ticks, hiding missing file output
+  { read -r ticks <"$issue_ticks"; } 2>/dev/null
+  printf '%d' "${#ticks}" # Return number of ticks (0, if empty)
+}
+
+#
+# Obtain and process the positional parameters invoked with the script
+#
+# The following global variables are defined, should options which
+# define them are specified:
+#
+#   $create_spectrogram
+#   $directory
+#   $force_compression
+#   $force_replaygain
+#   $no_extra_tags
+#   $operations[@]
+#
+_process_arguments() {
+  # Global variables used in other functions/operations
+  local -g create_spectrogram force_compression force_replaygain \
+    no_extra_tags directory operations global_jobs compress_jobs \
+    compress_threads
+
+  local arg invalid op
+  local -a conflicting operations_to_run
+
+  # If no arguments are made to the script show usage and help
+  if (($# == 0)); then
+    _help
+    exit 1
+  fi
+
+  # Processes all the possible positional parameters, short options
+  # only, handling conflicting parameters
+  while getopts ':j:J:T:mtcCaAgLlGrepnhvox' arg "$@"; do
+    case "$arg" in
+    # Given argument is not valid. 'OPTARG' is 'arg' before 'arg' is
+    # set to '?'
+    '?')
+      [[ "$invalid" == *"-$OPTARG"* ]] && continue
+      invalid+="${invalid:+ }-$OPTARG"
+      ;;
+
+    # Required parameter for a given argument was not specified
+    ':')
+      _error "Option -$OPTARG, requires a non-zero integer, eg: -${OPTARG}4"
+      _help
+      exit 1
+      ;;
+
+    # Help message and exit
+    'h')
+      _help
+      exit 0
+      ;;
+
+    # Dipslay script version and exit
+    'v')
+      printf 'redoflacs %s\n' "$script_version"
+      exit 0
+      ;;
+
+    # Create a new configuration file and exit
+    'o')
+      _create_config
+      exit 0
+      ;;
+
+    # Disable color output
+    'n') unset -v 'reset' 'red' 'green' 'yellow' 'blue' 'magenta' 'cyan' ;;
+
+    # Prevent COMPRESSION tag from being applied during compression
+    'x') no_extra_tags='true' ;;
+
+    # Validate MD5 checksum in FLAC files
+    'm') operations_to_run+=('_md5check') ;;
+
+    # Test FLAC files
+    't') operations_to_run+=('_test') ;;
+
+    # Compression and force compression arguments
+    'c' | 'C')
+      # Skip as both compression arguments were already specified
+      [[ "${conflicting[*]}" == *'-c, -C'* ]] && continue
+
+      operations_to_run+=('_compress')
+      [[ "$arg" == 'C' ]] && force_compression='true'
+
+      # '-C' was already specified and '-c' is the current argument
+      if [[ "$arg" == 'c' && "$force_compression" ]]; then
+        conflicting+=('-c, -C')
+
+      # '-c' was already specified and '-C' is the current argument
+      elif [[ "$arg" == 'C' && ! "$force_compression" ]]; then
+        conflicting+=('-c, -C')
+      fi
+      ;;
+
+    # auCDtect and auCDtect with spectrogram arguments
+    'a' | 'A')
+      # Skip as both auCDtect arguments were already specified
+      [[ "${conflicting[*]}" == *'-a, -A'* ]] && continue
+
+      operations_to_run+=('_aucdtect')
+      [[ "$arg" == 'A' ]] && create_spectrogram='true'
+
+      # '-A' was already specified and '-a' is the current argument
+      if [[ "$arg" == 'a' && "$create_spectrogram" ]]; then
+        conflicting+=('-a, -A')
+
+      # '-a' was already specified and '-A' is the current argument
+      elif [[ "$arg" == 'A' && ! "$create_spectrogram" ]]; then
+        conflicting+=('-a, -A')
+      fi
+      ;;
+
+    # LAC and LAC with spectrogram arguments
+    'l' | 'L')
+      # Skip as both LAC arguments were already specified
+      [[ "${conflicting[*]}" == *'-l, -L'* ]] && continue
+
+      operations_to_run+=('_lac')
+      [[ "$arg" == 'L' ]] && create_spectrogram='true'
+
+      # '-L' was already specified and '-l' is the current argument
+      if [[ "$arg" == 'l' && "$create_spectrogram" ]]; then
+        conflicting+=('-l, -L')
+
+      # '-l' was already specified and '-L' is the current argument
+      elif [[ "$arg" == 'L' && ! "$create_spectrogram" ]]; then
+        conflicting+=('-l, -L')
+      fi
+      ;;
+
+    # ReplayGain and force ReplayGain arguments
+    'g' | 'G')
+      # Skip as both ReplayGain arguments were already specified
+      [[ "${conflicting[*]}" == *'-g, -G'* ]] && continue
+
+      operations_to_run+=('_replaygain')
+      [[ "$arg" == 'G' ]] && force_replaygain='true'
+
+      # '-G' was already specified and '-g' is the current argument
+      if [[ "$arg" == 'g' && "$force_replaygain" ]]; then
+        conflicting+=('-g, -G')
+
+      # '-g' was already specified and '-G' is the current argument
+      elif [[ "$arg" == 'G' && ! "$force_replaygain" ]]; then
+        conflicting+=('-g, -G')
+      fi
+      ;;
+
+    # Retag FLAC files
+    'r') operations_to_run+=('_retag') ;;
+
+    # Extract embedded artwork from FLAC files
+    'e') operations_to_run+=('_extract_images') ;;
+
+    # Prune unnecessary metadata blocks from FLAC files
+    'p') operations_to_run+=('_prune') ;;
+
+    # Specify number of jobs/threads
+    'j' | 'J' | 'T')
+      # OPTARG is the (required) number after $arg
+      if [[ ! "$OPTARG" =~ ^[[:digit:]]+$ ]] || ((OPTARG == 0)); then
+        _error "Option -$arg, requires a non-zero integer, eg: -${arg}4"
+        _error "Current value applied: $OPTARG"
+        _help
+        exit 1
+      fi
+
+      # Set the relevant jobs/threads based on type of argument
+      [[ "$arg" == 'j' ]] && global_jobs="$OPTARG"
+      [[ "$arg" == 'J' ]] && compress_jobs="$OPTARG"
+      [[ "$arg" == 'T' ]] && compress_threads="$OPTARG"
+      ;;
+    esac
+  done
+
+  # Invalid parameters were specified
+  if [[ "$invalid" ]]; then
+    _error 'Invalid arguments specified:'
+    _error "  ${cyan}${invalid}$reset"
+  fi
+
+  # Conflicting parameters were specified
+  if ((${#conflicting[@]} > 0)); then
+    _error 'Conflicting operations specified:'
+    for option in "${conflicting[@]}"; do
+      _error "  ${cyan}${option}$reset"
+    done
+  fi
+
+  # Display help and exit if invalid or conflicting parameters exist
+  if [[ "$invalid" ]] || ((${#conflicting[@]})); then
+    _help
+    exit 1
+  fi
+
+  # Clear current arguments processed by getopts, including the last
+  # non-option encountered
+  shift $((OPTIND - 1))
+
+  # Make sure a directory is specified (non-option argument)
+  if (($# == 0)); then
+    _error 'Please specify a valid directory!'
+    _help
+    exit 1
+
+  # Ensure only directory is specified, which also shows any invalid
+  # non-option arguments applied
+  elif (($# > 1)); then
+    _error 'Unexpected arguments:'
+    _error "  ${cyan}$*${reset}"
+    _error 'All options must come before the target directory!'
+    _help
+    exit 1
+  fi
+
+  # The last element passed in is the directory to process FLAC files
+  directory="${1%/}" # Remove possible ending slash
+
+  # Ensure the directory exists
+  if [[ ! -d "$directory" ]]; then
+    _error 'Please specify a valid directory!'
+    _help
+    exit 1
+  fi
+
+  # Configure the order to run operations as this script may be called
+  # to run one or all operations on a target directory of FLAC files
+  if [[ " ${operations_to_run[*]} " == *' _md5check '* ]]; then
+    operations+=('_md5check')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _test '* ]]; then
+    operations+=('_test')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _compress '* ]]; then
+    operations+=('_compress')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _aucdtect '* ]]; then
+    operations+=('_aucdtect')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _lac '* ]]; then
+    operations+=('_lac')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _replaygain '* ]]; then
+    operations+=('_replaygain')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _retag '* ]]; then
+    operations+=('_retag')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _extract_images '* ]]; then
+    operations+=('_extract_images')
+  fi
+  if [[ " ${operations_to_run[*]} " == *' _prune '* ]]; then
+    operations+=('_prune')
+  fi
+}
+
+#
+# Check for missing programs required by this script
+#
+_check_missing_programs() {
+  local program
+  local -a programs=('rm' 'mkdir' 'mkfifo' 'metaflac' 'flac')
+  local -a missing_programs
+
+  for program in "${programs[@]}"; do
+    type -P "$program" >/dev/null || missing_programs+=("$program")
+  done
+
+  # auCDtect binary
+  if [[ " ${operations[*]} " == *' _aucdtect '* ]]; then
+    type -P auCDtect >/dev/null || missing_programs+=('auCDtect')
+  fi
+
+  # Lossless Audio Checker (LAC) binary
+  if [[ " ${operations[*]} " == *' _lac '* ]]; then
+    type -P LAC >/dev/null || missing_programs+=('LAC')
+  fi
+
+  if [[ "$create_spectrogram" ]]; then
+    type -P sox >/dev/null || missing_programs+=('sox')
+  fi
+
+  if [[ "${missing_programs[*]}" ]]; then
+    _error 'The following required programs were not found:'
+    for program in "${missing_programs[@]}"; do
+      _error "  ${cyan}${program}$reset"
+    done
+
+    _error
+
+    # shellcheck disable=SC2016
+    _error 'Ensure these programs are installed and available in $PATH'
+    exit 1
+  fi
+}
+
+#
+# Run a given operation with a specified number of jobs
+#
+_run_parallel() {
+  local item # FLAC file (or directory) to process
+  local -i row
+
+  # Starting cursor row to display first item and operation progress
+  row=$(($(_row) - 1))
+
+  # Start as many operations as specified by the number of jobs
+  for item in "${total_items[@]:0:$operation_jobs}"; do
+    ((row++, num++))
+    "$operation" &
+  done
+
+  # Wait on operations if number of items is less than total jobs
+  ((${#total_items[@]} <= operation_jobs)) && wait
+
+  # Completion of an operation sends an integer (terminal row number)
+  # and newline to a FIFO (job manager).
+  #
+  # After each newline is read from the FIFO, another item is processed
+  while read -r row; do
+    ((num >= ${#total_items[@]})) && break # Stop if no more FLACs
+    item="${total_items[num++]}"           # Current item to process
+    "$operation" &
+  done <&3 # Read from FIFO
+
+  # Wait on operations
+  wait
+}
+
+#
+# Sends the value of $row (integer) to the job manager FIFO which is
+# from the parent function, _run_parallel()
+#
+# This value is where the cursor is located for the current operation
+# on a given item, allowing the job manager to know where to put output
+# for the next job, if any
+#
+# The newline is needed in order for the 'read' to finish reading the
+# output
+#
+_send_operation_finished() {
+  printf >&3 '%d\n' "$row"
+}
+
+#
+# Decode FLAC to WAV file (used in operation functions)
+#
+# NOTE:
+#   This function will return 1 if failure was detected and no other
+#   operations need to be performed (to exit the parent function)
+#
+_decode_to_wav() {
+  local output previous error_msg
+
+  # Basename of FLAC, splitting on whitespace since the 'read' below
+  # splits on whitespace (to get percentage token, error messages, etc)
+  local base="${item##*[ /]}"
+
+  # The parent function's name, eg: _lac -> lac
+  local function_label="${FUNCNAME[1]#_}"
+  function_label="${function_label^^}" # lac -> LAC
+
+  # Used in other functions/operations
+  local -g item_wav
+
+  # Generate the WAV file path to be created from the current FLAC file
+  if [[ "$temporary_wav_location_sub_dir" ]]; then
+    # Eg: /tmp/tmp_redoflacs_dir.1234.1 ->
+    #     /tmp/tmp_redoflacs_dir.1234.1/music/artist/album/01.flac
+    item_wav="${temporary_wav_location_sub_dir%/}/${item#/}"
+
+    # Ensure the relative path is created in the temporary directory
+    mkdir -p "${item_wav%/*}"
+
+    # Eg: /tmp/tmp_redoflacs_dir.1234.1/music/artist/album/01.flac ->
+    #     /tmp/tmp_redoflacs_dir.1234.1/music/artist/album/01_redoflacs_1234.wav
+    item_wav="${item_wav%.*}_redoflacs_$$.wav"
+  else
+    # Eg: /music/artist/album/01.flac ->
+    #     /music/artist/album/01_redoflacs_1234.wav
+    item_wav="${item%.*}_redoflacs_$$.wav"
+  fi
+
+  _print_item 'Decoding'
+
+  # As indicated by '[FIRST]', '[SECOND]', and '[LAST]', this is the
+  # order each of the statements will evaluate to 'true'. '[FIRST]' may
+  # never evaluate to 'true' (if the FLAC file fails to decode)
+  while IFS=$'\n' read -rd ' ' output; do
+    # [LAST] Store error message
+    if [[ "$error_msg" && -n "$output" ]]; then
+      [[ "$output" == 'state' ]] && break # End of error message
+      error_msg+=" $output"
+      continue
+    fi
+
+    # [SECOND] An error occurred, storing first word
+    if [[ "$output" == 'ERROR' && "$previous" == *"${base}:" ]]; then
+      error_msg="$output"
+      continue
+    fi
+
+    # [FIRST] FLAC decoding percentage complete
+    if [[ "$output" == *[[:digit:]]% ]]; then
+      output="${output//$'\b'/}" # Remove all backspace characters
+
+      # Remove beginning 'complete' string (from backspace characters)
+      printf "\033[${row}H${yellow}%4s$reset" "${output#complete}"
+    fi
+
+    # Used to validate previous output is an error and not a filename
+    previous="$output"
+  done < <(flac 2>&1 "${flac_extra_options[@]}" -d "$item" -o "$item_wav")
+
+  # Log failures if there are any errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+
+    printf >>"$log_file" '%s [%s] %s\n' "$item" "$function_label" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+
+    # Return 1 to break out of parent fuction
+    _send_operation_finished
+    return 1
+  else
+    _print_item_ok
+  fi
+}
+
+#
+# Generate a spectrogram of current FLAC (used in operation functions)
+#
+_generate_spectrogram() {
+  local output rest_of_output spectrogram
+
+  # The parent function's name, eg: _aucdtect -> aucdtect
+  local function_label="${FUNCNAME[1]#_}"
+  function_label="${function_label^^}" # aucdtect -> AUCDTECT
+
+  # Determine where to put spectrograms by checking user config
+  if [[ "$spectrogram_location" ]]; then
+    # Eg: /media/specs -> /media/specs/artist/album/file.flac
+    spectrogram="${spectrogram_location%/}/${item#/}"
+
+    # Ensure the relative path is created in the spectrogram location
+    mkdir -p "${spectrogram%/*}"
+
+    # Eg: /media/specs/artist/album/file.flac ->
+    #     /media/specs/artist/album/file.flac.spec.png.0
+    spectrogram="${spectrogram}.spec.png.0"
+  else
+    # Eg: /music/artist/album/file.flac.spec.png.0
+    spectrogram="${item}.spec.png.0"
+  fi
+
+  # User requested a spectrogram, SoX is run to generate a spectrogram
+  # in the location as the current item or a user-defined location
+  _print_item 'Spectrogram'
+
+  # Ensure we don't clobber the spectrogram, eg:
+  #   /music/artist/album/file.flac.spec.png.0 ->
+  #   /music/artist/album/file.flac.spec.png.1
+  until [[ ! -f "$spectrogram" ]]; do
+    spectrogram="${spectrogram%.*}.$((${spectrogram##*.} + 1))"
+  done
+
+  # SoX display progress percentage on STDERR as well as any error
+  # messages. Example output:
+  #
+  # Error messages:
+  #   sox FAIL formats: can't open input file `file.wav': WAVE: RIF<...>
+  #   sox FAIL formats: can't open input file `file.flacd': No such<...>
+  while IFS=$'\n' read -rd ' ' output; do
+    if [[ "$output" != *'In:'[[:digit:]]*'%' ]]; then
+      rest_of_output+=" $output" # Re-add spacing
+      continue
+    fi
+
+    # Strip from leading string
+    output="${output##*In:}" # Strip leading string
+    output="${output%\%}"    # Strip trailing percentage
+    output="${output%%.*}"   # Strip floating point from output
+
+    # Re-add percentage when printing
+    printf "\033[${row}H${yellow}%4s$reset" "$output%"
+  done < <(
+    sox 2>&1 "$item" -S -n spectrogram -o "$spectrogram" -t "$item" \
+      -c '' -p 1 -z 90 -Z 0 -q 249 -w Hann -x 1800 -y 513
+  )
+
+  # Strip leading space from generated output
+  IFS=' ' read -r rest_of_output <<<"$rest_of_output"
+
+  # Log failures if there are any errors from SoX
+  if [[ "$rest_of_output" == 'sox FAIL'* ]]; then
+    _print_item_fail
+    printf >>"$log_file" \
+      '%s [%s] %s\n' "$item" "${function_label}:Spectrogram" "$rest_of_output"
+
+  # Log operation status as well as generated spectrogram location
+  else
+    _print_item_check
+    printf >>"$log_file" \
+      '%s [%s] %s (%s)\n' \
+      "$item" "${function_label}:Spectrogram" \
+      "$lossless_check_results" "$spectrogram"
+  fi
+
+  printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+  # Update operation title message with current number of issues
+  _operation_title
+  _send_operation_finished
+}
+
+#
+# Apply ReplayGain tags to each FLAC file in a given directory.
+# Conditionally skip FLAC files if ReplayGain tags are already set. If
+# there are any errors, they are logged
+#
+_replaygain() {
+  local output error_msg
+  local -a error_log files
+
+  # Used to look for error messages and store wanted values
+  local regex="^(${item}/.*): (ERROR:.*)"
+
+  _print_item 'Applying ReplayGain'
+
+  # If a user chooses not to force apply ReplayGain tags, then each file
+  # is checked to ensure all ReplayGain tags are available, skipping the
+  # directory of files if all ReplayGain tags are already set
+  #
+  # NOTE:
+  #   All errors are ignored here as they will be caught during
+  #   application ReplayGain tags
+  if [[ ! "$force_replaygain" ]]; then
+    files=("$item"/*.flac) # Used for number of files
+
+    # Obtain ReplayGain tags from all files in the current directory
+    mapfile -n0 -t replaygain_tags < <(
+      metaflac 2>/dev/null "${metaflac_extra_options[@]}" \
+        --show-tag='REPLAYGAIN_REFERENCE_LOUDNESS' \
+        --show-tag='REPLAYGAIN_TRACK_GAIN' \
+        --show-tag='REPLAYGAIN_TRACK_PEAK' \
+        --show-tag='REPLAYGAIN_ALBUM_GAIN' \
+        --show-tag='REPLAYGAIN_ALBUM_PEAK' \
+        "${files[@]}"
+    )
+
+    # All ReplayGain tags are set, so this directory can be skipped
+    #
+    # The total number of ReplayGain tags found on all files in the
+    # current directory must equal the total number of files found
+    # multiplied by 5 (the number of ReplayGain tags added to each file)
+    if ((${#replaygain_tags[@]} == ${#files[@]} * 5)); then
+      _print_item_skip
+      _send_operation_finished
+      return
+    fi
+  fi
+
+  _print_item_half # Metaflac doesn't display a percentage complete
+
+  # Since this operation applies to multiple files in a given directory,
+  # all error messages (per file) is stored into an array, then logged
+  # to a file
+  #
+  # Metaflac only displays error messages to STDERR, nothing to STDOUT
+  while IFS=$'\n' read -r output; do
+    # Any output is an error message
+    if [[ "$output" =~ $regex ]]; then
+      error_msg="${BASH_REMATCH[1]} [ReplayGain] " # Absolute filename
+
+      # Error reading FLAC file (possibly fake), eg:
+      #   ERROR: reading metadata, status = "FLAC__METADA ..."
+      if [[ "${BASH_REMATCH[2]}" == *", status = "* ]]; then
+        error_msg+="${BASH_REMATCH[2]%, status = *} " # Error
+
+      # Files with differing sample rates, or problems decoding, eg:
+      #   ERROR: sample rate of 44100 Hz does not match ...
+      #   ERROR: during analysis (decoding file)
+      else
+        error_msg+="${BASH_REMATCH[2]}"
+      fi
+
+      # All FLAC files are stored here to be logged
+      error_log+=("$error_msg")
+    fi
+  done < <(
+    metaflac 2>&1 "${metaflac_extra_options[@]}" \
+      --add-replay-gain "$item"/*.flac
+  )
+
+  # Log failures if there are any errors
+  if [[ "${error_log[0]}" ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s\n' "${error_log[@]}"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+  else
+    _print_item_ok
+  fi
+
+  _send_operation_finished
+}
+
+#
+# Compress FLAC files with user-defined compression, verifying
+# integrity. Conditionally skip FLAC files if the 'COMPRESSION' tag
+# exists for a given file and matches the compression level set in the
+# user configuration file
+#
+_compress() {
+  local file_compression output previous error_msg warning_msg
+
+  # Basename of FLAC, splitting on whitespace since the 'read' below
+  # splits on whitespace (to get percentage token, error messages, etc)
+  local base="${item##*[ /]}"
+
+  _print_item 'Compressing'
+
+  # If a user chooses not to force compression, then each file is
+  # checked for a 'COMPRESSION' tag that matches the compression level
+  # set in the user configuration. If the 'COMPRESSION' tag exists and
+  # matches what is set in the configuration, then this file is skipped
+  #
+  # NOTE:
+  #   All errors are ignored here as they will be caught during
+  #   compression
+  if [[ ! "$force_compression" ]]; then
+    file_compression="$(
+      metaflac 2>/dev/null "${metaflac_extra_options[@]}" \
+        --show-tag='COMPRESSION' "$item"
+    )"
+
+    # 'compression_level' is obtained from the configuration file, in
+    # form of 'COMPRESSION=<value>'
+    if
+      [[ -n "$file_compression" ]] &&
+        ((${file_compression##*=} == compression_level))
+    then
+      _print_item_skip
+      _send_operation_finished
+      return
+    fi
+  fi
+
+  # As indicated by '[FIRST]', '[SECOND]', '[THIRD]', '[FOURTH]', and
+  # '[LAST]', this is the order each of the statements will evaluate to
+  # 'true'. '[FIRST]' may never evaluate to 'true' (if the FLAC file
+  # fails to decode
+  while IFS=$'\n' read -rd ' ' output; do
+    # [LAST] Store error message
+    if [[ "$error_msg" && -n "$output" ]]; then
+      # End of error message
+      [[ "$output" == 'state' || "$output" == '"flac"' ]] && break
+      error_msg+=" $output"
+      continue
+    fi
+
+    # [FOURTH] An error occurred, storing first word
+    if [[ "$output" == 'ERROR:' && "$previous" == *"${base}:" ]]; then
+      error_msg="$output"
+      continue
+    fi
+
+    # [THIRD] Store rest of warning message
+    if [[ "$warning_msg" && -n "$output" ]]; then
+      # Stop if there is an error message and build that separately
+      [[ "$output" == *'ERROR:' ]] && error_msg='ERROR:' && continue
+      warning_msg+=" $output"
+      continue
+    fi
+
+    # [SECOND] A warning occurred, storing first word
+    #
+    # NOTE:
+    #   Due to 'read' using a space a delimiter, the WARNING message may
+    #   have preceding text (word + newline)
+    if [[ "$output" == *'WARNING:' ]]; then
+      warning_msg='WARNING:'
+      continue
+    fi
+
+    # [FIRST] FLAC compression percentage complete
+    if [[ "$output" == *[[:digit:]]% ]]; then
+      output="${output//$'\b'/}" # Remove all backspace characters
+
+      # Remove beginning ratio string (from backspace characters)
+      printf "\033[${row}H${yellow}%4s$reset" "${output#ratio=?.???}"
+    fi
+
+    # Used to validate previous output is an error and not a filename
+    previous="$output"
+  done < <(
+    flac 2>&1 "${flac_extra_options[@]}" \
+      -f -"$compression_level" -V "$flac_compress_threads" "$item"
+  )
+
+  # Add warning message to error message for logging
+  [[ "$warning_msg" ]] && error_msg="$warning_msg|$error_msg"
+
+  # Log failures if there are any warnings and/or errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+    error_msg="${error_msg%,}"          # Strip possible trailing comma
+    error_msg="${error_msg/$'\n'Type/}" # Strip possible multiline error
+    printf >>"$log_file" '%s [Compress] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # Add a 'COMPRESSION' tag to the current FLAC file, to indicate which
+  # compression level was used when compressing (only if user did not
+  # specify no extra tags to be applied)
+  #
+  # NOTE:
+  #   Errors are ignored as the FLAC file was verified during encoding
+  if [[ ! "$no_extra_tags" ]]; then
+    metaflac 2>/dev/null "${metaflac_extra_options[@]}" \
+      --remove-tag='COMPRESSION' \
+      --set-tag="COMPRESSION=$compression_level" "$item"
+  fi
+
+  _print_item_ok
+  _send_operation_finished
+}
+
+#
+# Tests current FLAC file integrity, reading all output, displaying the
+# current percentage complete. If there is an error that error is logged
+#
+_test() {
+  local output previous error_msg
+
+  # Basename of FLAC, splitting on whitespace since the 'read' below
+  # splits on whitespace (to get percentage token, error messages, etc)
+  local base="${item##*[ /]}"
+
+  _print_item 'Testing'
+
+  # As indicated by '[FIRST]', '[SECOND]', and '[LAST]', this is the
+  # order each of the statements will evaluate to 'true'. '[FIRST]' may
+  # never evaluate to 'true' (if the FLAC file fails to decode)
+  while IFS=$'\n' read -rd ' ' output; do
+    # [LAST] Store error message
+    if [[ "$error_msg" && -n "$output" ]]; then
+      [[ "$output" == 'state' ]] && break # End of error message
+      error_msg+=" $output"
+      continue
+    fi
+
+    # [SECOND] An error occurred, storing first word
+    if [[ "$output" == 'ERROR' && "$previous" == *"${base}:" ]]; then
+      error_msg="$output"
+      continue
+    fi
+
+    # [FIRST] FLAC testing percentage complete
+    if [[ "$output" == *[[:digit:]]% ]]; then
+      printf "\033[${row}H${yellow}%4s$reset" "$output"
+    fi
+
+    # Used to validate previous output is an error and not a filename
+    previous="$output"
+  done < <(flac 2>&1 "${flac_extra_options[@]}" -t "$item")
+
+  # Log failures if there are any errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s [Test] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+  else
+    _print_item_ok
+  fi
+
+  _send_operation_finished
+}
+
+#
+# Test FLAC validity with Lossless Audio Checker (LAC)
+#
+_lac() {
+  local mastering output rest_of_output spectrogram
+  local -i count
+
+  # Used in other functions
+  local -g lossless_check_results
+
+  # Unit separator (replace newlines from LAC's output with US)
+  local us=$'\037'
+
+  # Used to look for error messages and file status in LAC which is
+  # captured via STDOUT
+  #
+  # Example STDOUT from LAC (error message):
+  #
+  #   Lossless Audio Checker 2.0.5
+  #   Copyright (c) 2012-2016 Julien Lacroix & Yann Prime
+  #   http://losslessaudiochecker.com
+  #   ==================================================
+  #   File:   invalid_file.wav
+  #   Result: WAVE header RIFF chunk: bad Size
+  #
+  # Example STDOUT from LAC (file status):
+  #
+  #   Lossless Audio Checker 2.0.5
+  #   Copyright (c) 2012-2016 Julien Lacroix & Yann Prime
+  #   http://losslessaudiochecker.com
+  #   ==================================================
+  #   File:   bad_file.wav
+  #   Result: Upsampled
+  #
+  # Example regex capture groups obtained:
+  #
+  # Error messages:
+  #
+  #   WAVE header RIFF chunk: bad Size
+  #   WAVE header FMT chunk: not found
+  #   WAVE header EXTENSIBLE chunk: bad Channel Mask
+  #   WAVE header DATA chunk: bad ID
+  #
+  # Successful operations:
+  #
+  #   Clean
+  #   Transcoded
+  #   Upscaled
+  #   Upsampled
+  local regex="${us}Result: (.*)${us}$"
+
+  # Check for a result from LAC that is NOT clean
+  local regex_non_clean='^(transcoded|upscaled|upsampled)'
+
+  _print_item 'LAC'
+
+  # Get the MASTERING tag of a FLAC file. Errors will be caught during
+  # decoding
+  mastering="$(
+    metaflac 2>/dev/null "${metaflac_extra_options[@]}" \
+      --show-tag='MASTERING' "$item"
+  )"
+
+  # Skip FLAC file if MASTERING=Lossy is set and the 'skip_lossy'
+  # configuration option is 'true'
+  if [[ "$mastering" == 'Lossy' && "$skip_lossy" == 'true' ]]; then
+    _print_item_skip
+    _send_operation_finished
+    return
+  fi
+
+  # Decode FLAC file to WAV file as LAC does not support FLAC or decoded
+  # streams over a pipe
+  #
+  # NOTE:
+  #   Break out of current function if there were failures decoding
+  _decode_to_wav || return
+
+  _print_item 'LAC'
+
+  # Runs LAC and parses out the progress bar (made up of '=') and
+  # generates a percentage of completion along with storing the result
+  # of the operation
+  #
+  # NOTE:
+  #   Processing LAC's output is done by character where 'read' is
+  #   reading in a single character at a time
+  while IFS=$'\n' read -rn1 output; do
+    # The first '=' found is the progress bar (max 50), which is counted
+    # and integer scaling division is performed to get the percentage
+    if [[ "$output" == '=' ]]; then
+      printf "\033[${row}H${yellow}%4s$reset" "$(((++count * 100) / 50))%"
+      continue
+    fi
+
+    # The rest of the output (after progress bar) is the file and result
+    if ((count == 50)); then
+      # All newlines are null, which is replaced by a unit separator
+      [[ -z "$output" ]] && rest_of_output+="$us" || rest_of_output+="$output"
+    fi
+  done < <(LAC "$item_wav")
+
+  # Remove temporary WAV file
+  rm -f "${item_wav:-/dev/null/foo}"
+
+  # Looks for the result from LAC
+  [[ "$rest_of_output" =~ $regex ]]
+
+  # Either 'Clean', 'Transcoded', 'Upscaled', or 'Upsampled'
+  lossless_check_results="${BASH_REMATCH[1]}"
+
+  # LAC reports a clean file, continue with next item
+  if [[ "${lossless_check_results,,}" == 'clean' ]]; then
+    _print_item_ok
+    _send_operation_finished
+    return
+  fi
+
+  # Log failure if not clean and no spectrogram is requested
+  if
+    [[ "${lossless_check_results,,}" =~ $regex_non_clean ]] &&
+      [[ ! "$create_spectrogram" ]]
+  then
+    _print_item_check
+    printf >>"$log_file" \
+      '%s [%s] %s\n' "$item" 'LAC' "$lossless_check_results"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # Generate a spectrogram of the current FLAC file and log the
+  # results of the operation along with the spectrogram location
+  _generate_spectrogram
+}
+
+#
+# Test FLAC validity with auCDtect
+#
+# NOTE:
+#   While not officially supported, should a user have a dynamically
+#   linked auCDtect binary, 'MALLOC_CHECK_' will to be set to '0', eg:
+#
+#     MALLOC_CHECK_='0' auCDtect <rest_of_options>
+#
+_aucdtect() {
+  local output aucdtect_stdout aucdtect_stderr spectrogram
+  local -a bits_mastering
+
+  # Used in other functions
+  local -g lossless_check_results
+
+  # Used to look for error messages and file status in auCDtect which is
+  # captured via STDOUT
+  #
+  # Example STDOUT from auCDtect (error message):
+  #
+  #   auCDtect: CD records authenticity detector, version 0.8
+  #   Copyright (c) 2004 Oleg Berngardt. All rights reserved.
+  #   Copyright (c) 2004 Alexander Djourik. All rights reserved.
+  #   error:  file format     is not supported
+  #
+  # Example STDOUT from auCDtect (file status):
+  #
+  #   auCDtect: CD records authenticity detector, version 0.8
+  #   Copyright (c) 2004 Oleg Berngardt. All rights reserved.
+  #   Copyright (c) 2004 Alexander Djourik. All rights reserved.
+  #   ------------------------------------------------------------
+  #   Processing file:        [01 - The Manifesto.wav]
+  #
+  #   ------------------------------------------------------------
+  #   This track looks like CDDA with probability 85%
+  #
+  # Example regex capture groups obtained:
+  #
+  # Error messages:
+  #
+  #   error:  can     not     open file <WAV_FILE>
+  #   error:  file format     is not supported
+  #
+  # Successful operations:
+  #
+  #   This track looks like CDDA with probability 100%
+  #   This track looks like CDDA with probability 49%
+  #   This track looks like MPEG with probability 100%
+  #   This track looks like MPEG with probability 92%
+  #   Could not qualify the source of this track.
+  local regex=$'(error:.*)|Processing file.*--------.*\n(.*)$'
+
+  _print_item 'auCDtect'
+
+  # Get the bit depth and MASTERING tag of a FLAC file. Errors will be
+  # caught during decoding. Indices are:
+  #   bits_mastering[0] = bit depth (eg: 16)
+  #   bits_mastering[1] = MASTERING tag and value (eg: MASTERING=Lossy)
+  mapfile -n2 -t bits_mastering < <(
+    metaflac 2>/dev/null "${metaflac_extra_options[@]}" \
+      --show-bps --show-tag='MASTERING' "$item"
+  )
+
+  # auCDtect does not support a bit depth greater than 16 (CD quality
+  # only), skipping file
+  #
+  # NOTE:
+  #   A default value of 0 is specified in the event the bit depth could
+  #   not be obtained. Errors will be caught during decoding
+  if ((${bits_mastering[0]:-0} > 16)); then
+    _print_item_skip
+    _send_operation_finished
+    return
+  fi
+
+  # Skip FLAC file if MASTERING=Lossy is set and the 'skip_lossy'
+  # configuration option is 'true'
+  if [[ 
+    "${bits_mastering[1]#*=}" == 'Lossy' &&
+    "$skip_lossy" == 'true' ]] \
+    ; then
+    _print_item_skip
+    _send_operation_finished
+    return
+  fi
+
+  # Decode FLAC file to WAV file as LAC does not support FLAC or decoded
+  # streams over a pipe
+  #
+  # NOTE:
+  #   Break out of current function if there were failures decoding
+  _decode_to_wav || return
+
+  # Runs auCDtect with medium accuracy setting (for speed):
+  #   STDOUT: auCDtect STDOUT captured to be parsed
+  #   STDERR: auCDtect progress percentage completed sent to FD4
+  _print_item 'auCDtect:Fast'
+  exec 4>&1
+  aucdtect_stdout="$(
+    MALLOC_CHECK_='0' auCDtect -m20 "$item_wav" 2> >(
+      while IFS=$'\n' read -rd $'\r' aucdtect_stderr; do
+        aucdtect_stderr="${aucdtect_stderr##*[}"
+        printf >&4 "\033[${row}H${yellow}%4s$reset" "${aucdtect_stderr%]}"
+      done
+    )
+  )"
+  exec 4>&-
+
+  # Looks for error messages and file status from auCDtect
+  #   BASH_REMATCH[1]: auCDtect error messages
+  #   BASH_REMATCH[2]: auCDtect file status
+  [[ "$aucdtect_stdout" =~ $regex ]]
+
+  # Store auCDtect status of file
+  lossless_check_results="${BASH_REMATCH[2]}"
+
+  # Log failures if there are any errors
+  if [[ "${BASH_REMATCH[1]}" ]]; then
+    _print_item_fail
+    printf >>"$log_file" \
+      '%s [%s] %s\n' "$item" 'auCDtect' "${BASH_REMATCH[1]}"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Remove temporary WAV file
+    rm -f "${item_wav:-/dev/null/foo}"
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+
+  # auCDtect reports CDDA of 100%, continue with next item
+  elif [[ "$lossless_check_results" == *'CDDA'*'100%'* ]]; then
+    _print_item_ok
+
+    # Remove temporary WAV file
+    rm -f "${item_wav:-/dev/null/foo}"
+
+    _send_operation_finished
+    return
+  fi
+
+  # Current item is not CDDA of 100%, auCDtect is run with highest
+  # accuracy setting:
+  #   STDOUT: auCDtect STDOUT captured to be parsed
+  #   STDERR: auCDtect progress percentage completed sent to FD4
+  _print_item 'auCDtect:Slow'
+  exec 4>&1
+  aucdtect_stdout="$(
+    MALLOC_CHECK_='0' auCDtect -m0 "$item_wav" 2> >(
+      while IFS=$'\n' read -rd $'\r' aucdtect_stderr; do
+        aucdtect_stderr="${aucdtect_stderr##*[}"
+        printf >&4 "\033[${row}H${yellow}%4s$reset" "${aucdtect_stderr%]}"
+      done
+    )
+  )"
+  exec 4>&-
+
+  # Looks for error messages and file status from auCDtect
+  #   BASH_REMATCH[1]: auCDtect error messages
+  #   BASH_REMATCH[2]: auCDtect file status
+  [[ "$aucdtect_stdout" =~ $regex ]]
+
+  # Store auCDtect status of file (also used in other functions)
+  lossless_check_results="${BASH_REMATCH[2]}"
+
+  # Log failures if there are any errors
+  if [[ "${BASH_REMATCH[1]}" ]]; then
+    _print_item_fail
+    printf >>"$log_file" \
+      '%s [%s] %s\n' "$item" 'auCDtect' "${BASH_REMATCH[1]}"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Remove temporary WAV file
+    rm -f "${item_wav:-/dev/null/foo}"
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # auCDtect reports CDDA of 100%, continue with next item
+  if [[ "$lossless_check_results" == *'CDDA'*'100%'* ]]; then
+    _print_item_ok
+
+    # Remove temporary WAV file
+    rm -f "${item_wav:-/dev/null/foo}"
+
+    _send_operation_finished
+    return
+  fi
+
+  # Log failure if not CDDA with 100% and no spectrogram is requested
+  if
+    [[ "$lossless_check_results" != *'CDDA'*'100%'* ]] &&
+      [[ ! "$create_spectrogram" ]]
+  then
+    _print_item_check
+    printf >>"$log_file" \
+      '%s [%s] %s\n' "$item" 'auCDtect' "$lossless_check_results"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Remove temporary WAV file
+    rm -f "${item_wav:-/dev/null/foo}"
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # Remove temporary WAV file
+  rm -f "${item_wav:-/dev/null/foo}"
+
+  # Generate a spectrogram of the current FLAC file and log the
+  # results of the operation along with the spectrogram location
+  _generate_spectrogram
+}
+
+#
+# Check for a valid MD5 checksum in FLAC file
+#
+_md5check() {
+  local output error_msg md5sum
+
+  _print_item 'Verifying MD5'
+
+  # Metaflac will display the MD5 checksum or an error (on one line).
+  # These values are captured and logged, appropriately
+  while IFS=$'\n' read -r output; do
+    # Error reading FLAC file (possibly fake), eg:
+    #   fake/fake.flac: ERROR: reading metadata, status = "FLAC ..."
+    if [[ "$output" == *'ERROR'* ]]; then
+      error_msg="${output%, status = *}"     # Strip status
+      error_msg="ERROR${error_msg#*: ERROR}" # Strip filename
+      break                                  # Stop reading lines
+    fi
+
+    # This is the MD5 checksum
+    md5sum="$output"
+  done < <(metaflac 2>&1 "${metaflac_extra_options[@]}" --show-md5sum "$item")
+
+  # Log failures if there are any errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s [MD5check] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+
+  # Possible valid FLAC, but MD5 signature is unset in STREAMINFO block
+  elif [[ "$md5sum" == '00000000000000000000000000000000' ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s [MD5check] %s\n' "$item" \
+      'ERROR: Unset MD5 signature (00000000000000000000000000000000)'
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+  else
+    _print_item_ok
+  fi
+
+  _send_operation_finished
+}
+
+#
+# Looks for the tags specified in the configuration file, stripping all
+# other tags from a given FLAC file, and logging any tags which are
+# missing
+#
+# Process substitution when extracting tags is used to ensure trailing
+# newlines are not stripped
+#
+_retag() {
+  local output error_msg line extracted_tag key empty_tag tag missing_tags_str
+  local -i index='-1'
+  local -a missing_tags found_tags
+
+  _print_item 'Retagging'
+
+  # Extracts the first tag from the list of tags to keep and does error
+  # handling on this operation. Other extracted tags are processeed in
+  # the following loop after the error handling
+  #
+  # Metaflac will display errors on one line. These are handled first
+  # with the tag value obtained last (if no failures)
+  while IFS=$'\n' read -r output; do
+    # Error reading FLAC file (possibly fake), eg:
+    #   fake/fake.flac: ERROR: reading metadata, status = "FLAC ..."
+    if [[ "$output" == *'ERROR'* ]]; then
+      error_msg="${output%, status = *}"     # Strip status
+      error_msg="ERROR${error_msg#*: ERROR}" # Strip filename
+      break                                  # Stop reading lines
+    fi
+
+    # This is the extracted tag (could be empty or multiple lines)
+    if [[ "$extracted_tag" ]]; then
+      extracted_tag+=$'\n'"$output"
+    else
+      extracted_tag+="$output"
+    fi
+  done < <(
+    metaflac 2>&1 "${metaflac_extra_options[@]}" \
+      --show-tag="${tags_to_keep[0]}" "$item"
+  )
+
+  # Log failures if there are any errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s [Retag] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # Look for each of the tags to keep in the current FLAC flac,
+  # separating each of the tags as separate indices in an array. If
+  # there are any missing tags, these are stored as well
+  for key in "${!tags_to_keep[@]}"; do
+    # The first tag (index=0) was already obtained during error checking
+    if ((key != 0)); then
+      IFS='' read -rd '' extracted_tag < <(
+        metaflac 2>&1 "${metaflac_extra_options[@]}" \
+          --show-tag="${tags_to_keep[key]}" "$item"
+      )
+
+      # Strips trailing newline due to the process substitution
+      # preserving trailing newlines
+      extracted_tag="${extracted_tag%$'\n'}"
+    fi
+
+    # The tag doesn't exist in the current item
+    if [[ -z "$extracted_tag" ]]; then
+      missing_tags+=("${tags_to_keep[key]}")
+      continue
+    fi
+
+    # Processes the extracted tag, looking for multiple tags of the same
+    # type as well and handling multiple line values for a given tag
+    # value. For any valid tags, each are stored as a separate index in
+    # an array
+    #
+    # For any stored tag, the tag field is converted to uppercase and
+    # the tag values are normalized (whitespace, zero-prefixed, etc)
+    while IFS=$'\n' read -r line; do
+      # Tag exists but the value is empty. This may be a missing tag
+      if [[ "${line^^}" == "${tags_to_keep[key]^^}=" ]]; then
+        # If a previous line was an empty tag field, this means the
+        # previous tag was, in fact, empty
+        [[ "$empty_tag" ]] && missing_tags+=("$empty_tag")
+
+        # Sets the tag field as empty and is used to check any
+        # additional lines which may be part of this tag
+        empty_tag="${tags_to_keep[key]^^}"
+        continue
+
+      # Tag exists and has a value (first line value only)
+      elif [[ "${line^^}" == "${tags_to_keep[key]^^}="* ]]; then
+        # Strip leading/trailing whitespace
+        IFS=$' \t\n' read -r line <<<"${line#*=}"
+
+        # Convert TRACKNUMBER and TRACKTOTAL to zero-prefixed numbers if
+        # the 'prepend_zero' configuration option is 'true'
+        if [[ 
+          (
+          "${tags_to_keep[key]}" == 'TRACKNUMBER' ||
+          "${tags_to_keep[key]}" == 'TRACKTOTAL') &&
+
+          "$prepend_zero" == 'true' ]] \
+          ; then
+          # Only modify value if the value is an integer
+          if [[ "$line" =~ ^[[:digit:]]+$ ]]; then
+            printf -v line '%02d' $((10#$line))
+          fi
+        fi
+
+        # Ensure tag field is uppercase and array index, incremented.
+        # The index starts at -1, so is pre-incremented to 0 before
+        # setting a value
+        found_tags[++index]="${tags_to_keep[key]^^}=$line"
+        continue
+      fi
+
+      # Strip leading/trailing whitespace
+      IFS=$' \t\n' read -r line <<<"$line"
+
+      # If this variable is set, it means the previous line was an empty
+      # tag field but since this point is reached, the current line is a
+      # part of the tag so the previous line is a valid tag. The tag is
+      # considered NOT empty and is saved with this line as part of the
+      # tag's value. An example tag where this could happen:
+      #
+      #    LYRICS=
+      #
+      #    This is a line for the above 'LYRICS' tag field.
+      #    This is another line which is a part of the same tag.
+      #
+      # The first line (LYRICS=) is originally considered an empty tag,
+      # but the following lines are processed and added to the tag
+      # making this tag valid and non-empty
+      if [[ "$empty_tag" ]]; then
+        found_tags[++index]="${empty_tag}="$'\n'"$line"
+        empty_tag='' # Reset as the tag is considered valid
+      else
+        # Another value (separate line) for the current tag field
+        found_tags[index]+=$'\n'"${line}"
+      fi
+    done <<<"$extracted_tag"
+  done
+
+  # Runs through the missing tags and only stores the tag as missing if
+  # there are no other tags found which match the tag field. This could
+  # happen, if there are multiple tags of the same tag field and some
+  # are empty, but at least one is valid, eg:
+  #
+  #   DATE=
+  #   DATE=
+  #   DATE=2001
+  #
+  # The DATE tag is considered missing, but when processed below, would
+  # be considered found and valid (the other empty DATE tags will be
+  # removed)
+  for tag in "${!missing_tags[@]}"; do
+    # Looks through all the valid and normalized tags found
+    for valid_tag in "${found_tags[@]}"; do
+      # Matched a tag and value for a missing tag, no longer missing
+      if [[ "$valid_tag" == "${missing_tags[tag]}="* ]]; then
+        unset -v 'missing_tags[tag]'
+        break
+      fi
+    done
+  done
+
+  # Removes all tags from the current FLAC file and sets each found tag
+  # all in one operation. A single operation prevents SIGINT from
+  # leaving the current FLAC file without any tags
+  #
+  # Metaflac >= 1.4.3 added '--remove-all-tags-except=NAME1=NAME2...'
+  # which is a safer operation
+  if
+    ((\
+    flac_major > 1 || flac_minor > 4 || (flac_minor == 4 && flac_patch >= 3)))
+  then
+    # Store only the tag fields and join into a '=' separated string
+    printf -v found_tags '%s=' "${found_tags[@]/%=*/}"
+
+    # Ensure trailing '=' is removed
+    metaflac >/dev/null 2>&1 "${metaflac_extra_options[@]}" \
+      --remove-all-tags-except="${found_tags%=}" "$item"
+  else
+    metaflac >/dev/null 2>&1 "${metaflac_extra_options[@]}" \
+      --remove-all-tags "${found_tags[@]/#/--set-tag=}" "$item"
+  fi
+
+  # Logs missing tags, if any were found
+  if [[ "${missing_tags[*]}" ]]; then
+    _print_item_check
+
+    # Generates a comma-separated list of missing tags to be logged.
+    # Ensures spaces in tag fields are properly handled
+    for tag in "${missing_tags[@]}"; do
+      if [[ "$missing_tags_str" ]]; then
+        missing_tags_str+=", $tag"
+      else
+        missing_tags_str+="$tag"
+      fi
+    done
+
+    printf >>"$log_file" \
+      '%s [Retag] Missing tags: %s\n' "$item" "$missing_tags_str"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+  else
+    _print_item_ok
+  fi
+
+  _send_operation_finished
+}
+
+#
+# Extact embedded artwork from a given FLAC
+#
+_extract_images() {
+  local -a artwork
+  local error_msg block_id art_id art_description mime img
+  local blocks="/tmp/redoflacs_picture_blocks.$BASHPID"
+
+  # Ensure we don't clobber the temporary PICTURE blocks file, eg:
+  #   /tmp/redoflacs_picture_blocks.0 -> /tmp/redoflacs_picture_blocks.1
+  until [[ ! -f "$blocks" ]]; do
+    blocks="${blocks%.*}.$((${blocks##*.} + 1))"
+  done
+
+  _print_item 'Extracting Images'
+
+  # Retrieve PICTURE blocks from current item, to a temporary file
+  error_msg="$(
+    metaflac 2>&1 >"$blocks" "${metaflac_extra_options[@]}" \
+      --list --block-type=PICTURE "$item"
+  )"
+
+  # Log FLAC failure
+  if [[ -n "$error_msg" ]]; then
+    error_msg="${error_msg%, status = *}"      # Strip end of error msg
+    error_msg="ERROR ${error_msg##*: ERROR: }" # Strip filename
+
+    _print_item_fail
+    printf >>"$log_file" '%s [ExtractArtwork] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+    rm -f "${blocks:-/dev/null/foo}"
+
+    # Update operation title message with current number of issues
+    _operation_title
+    _send_operation_finished
+    return
+  fi
+
+  # Skip if there were no PICTURE blocks found in current FLAC
+  if [[ ! -s "$blocks" ]]; then
+    _print_item_skip
+    rm -f "${blocks:-/dev/null/foo}"
+    _send_operation_finished
+    return
+  fi
+
+  _print_item_half # Metaflac doesn't display a percentage complete
+
+  # Store the values which can identify each image (in each PICTURE
+  # block) to be used during image extraction. The values needed are:
+  #   'METADATA block #<num>'           -> $block_id
+  #   '  type: <num> (<description>)'   -> $art_id AND $art_description
+  #   '  MIME type: image/jpeg'         -> $mime
+  #
+  # NOTE:
+  #   Reading the PICTURE block from a temporary file is much faster
+  #   than reading from process substitution (there can be many PICTURE
+  #   blocks in a single FLAC file and each image could be very large)
+  while IFS=$'\n' read -r; do
+    # Skip all the unnecessary information
+    [[ "$REPLY" != 'METADATA'* && "$REPLY" != '  '[tM]* ]] && continue
+
+    if [[ "$REPLY" == 'METADATA'* ]]; then
+      block_id="${REPLY##*#}"
+      continue
+    fi
+
+    # Ensure we don't use: 'type: 6 (PICTURE)'
+    if [[ "$REPLY" == '  type: '[^6]* ]]; then
+      IFS=' ' read -r _ art_id art_description <<<"${REPLY//\//-}"
+      art_description="${art_description//[()]/}" # Strip parenthesis
+      art_description="${art_description// /_}"   # Spaces underscores
+      continue
+
+    # Done with a PICTURE block; the values can be stored and the
+    # variables reset
+    elif [[ "$REPLY" == '  MIME'* ]]; then
+      mime="${REPLY##*/}"     # Eg: 'MIME type: image/jpeg' -> 'jpeg'
+      mime="${mime/jpeg/jpg}" # Eg: 'jpeg'                  -> 'jpg'
+
+      # Eg: '4:3-Cover_front.jpg'
+      artwork+=("${block_id}:${art_id}-${art_description}.${mime}")
+      unset -v 'block_id' 'art_id' 'art_description' 'mime'
+    fi
+  done <"$blocks"
+  rm -f "${blocks:-/dev/null/foo}"
+
+  # Continue only if there was artwork to be extracted
+  if [[ -z "${artwork[*]}" ]]; then
+    _send_operation_finished
+    return
+  fi
+
+  # Determine where to put extracted artwork by checking user config
+  if [[ "$artwork_location" ]]; then
+    # Eg: /media/images -> /media/images/artist/album/file.flac
+    artwork_location="${artwork_location%/}/${item#/}"
+
+    # Ensure the relative path is created in the artwork location
+    mkdir -p "${artwork_location%/*}"
+
+    # Eg: /media/images/artist/album/file.flac ->
+    #     /media/images/artist/album/file.flac.art.0
+    artwork_location="${artwork_location}.art.0"
+  else
+    # Eg: /music/artist/album/file.flac.art.0
+    artwork_location="${item}.art.0"
+  fi
+
+  # Ensure we don't clobber the artwork directory, eg:
+  #   /music/artist/album/file.flac.art.0 ->
+  #   /music/artist/album/file.flac.art.1
+  until [[ ! -d "$artwork_location" ]]; do
+    artwork_location="${artwork_location%.*}.$(( \
+      ${artwork_location##*.} + 1))"
+  done
+  mkdir -p "$artwork_location"
+
+  # Performs artwork extraction on the current item. Each array value:
+  #   '<block_id>:<art_id>-<art_description>.<mime>
+  #
+  # Which looks like:
+  #   '4:3-Cover_front.jpg'
+  for value in "${artwork[@]}"; do
+    # Eg: '/music/artist/album/file.flac.art.0/3-Cover_front.jpg.0'
+    img="${artwork_location}/${value#*:}.0"
+    block_id="${value%%:*}" # Eg: '4:3-Cover_front.jpg' -> '4'
+
+    # Ensure we don't clobber the extracted image, eg:
+    #   /music/artist/album/file.flac.art.0/3-Cover_front.jpg.0 ->
+    #   /music/artist/album/file.flac.art.0/3-Cover_front.jpg.1
+    until [[ ! -f "$img" ]]; do
+      img="${img%.*}.$((${img##*.} + 1))"
+    done
+
+    # Extracts each image by METADATA block number
+    metaflac "${metaflac_extra_options[@]}" \
+      --block-number="$block_id" --export-picture-to="$img" "$item"
+  done
+
+  _print_item_ok
+  _send_operation_finished
+}
+
+#
+# Prune user configurable FLAC metadata from FLAC files
+#
+_prune() {
+  local output error_msg
+
+  _print_item 'Pruning'
+  _print_item_half # Metaflac doesn't display a percentage complete
+
+  # Remove all information but STREAMINFO,VORBIS_COMMENTs, and
+  # possibly METADATA_BLOCK_PICTURE
+  while IFS=$'\n' read -r output; do
+    # Error reading FLAC file (possibly fake), eg:
+    #   fake/fake.flac: ERROR: reading metadata, status = "FLAC ..."
+    if [[ "$output" == *'ERROR'* ]]; then
+      error_msg="${output%, status = *}"     # Strip status
+      error_msg="ERROR${error_msg#*: ERROR}" # Strip filename
+      break                                  # Stop reading lines
+    fi
+  done < <(
+    metaflac 2>&1 "${metaflac_extra_options[@]}" \
+      --remove --dont-use-padding \
+      --except-block-type="$dont_prune_flac_metadata" "$item"
+  )
+
+  # Log failures if there are any errors
+  if [[ "$error_msg" ]]; then
+    _print_item_fail
+    printf >>"$log_file" '%s [Prune] %s\n' "$item" "$error_msg"
+    printf >>"$issue_ticks" '.' # Add one tick to total issues
+
+    # Update operation title message with current number of issues
+    _operation_title
+  else
+    _print_item_ok
+  fi
+
+  _send_operation_finished
+}
+
+#########################  PRE-SCRIPT CHECKS  ##########################
+
+# For colored output
+reset=$'\033[0m'
+red=$'\033[31m'
+green=$'\033[32m'
+yellow=$'\033[33m'
+blue=$'\033[34m'
+magenta=$'\033[35m'
+cyan=$'\033[36m'
+
+script_version='1.1.0' # Redoflacs version
+
+#
+# Make sure we are running BASH 4 or greater
+#
+if ((BASH_VERSINFO[0] < 4)); then
+  _error "You must be running ${cyan}BASH 4$reset or greater to use this"
+  _error 'program! Current version:'
+  _error "  ${cyan}${BASH_VERSION}$reset"
+  exit 1
+fi
+
+# BASH 4: Used to recursively find (glob) FLAC files (eg, /**/*.flac)
+shopt -s globstar 2>/dev/null
+
+# BASH 2: Make all globbing case-insensitive
+shopt -s nocaseglob 2>/dev/null
+
+#
+# Redoflacs configuration file
+#
+config_file="${HOME}/.config/redoflacs/config"
+
+#
+# Create a new configuration file if one does not exist
+#
+if [[ ! -f "$config_file" ]]; then
+  _create_config
+  exit 0
+else
+  _parse_config
+fi
+
+#
+# Process/validate script positional parameters. This function provides
+# variables which are used by later functions/operations (based on
+# whether certain operations are specified)
+#
+_process_arguments "$@"
+
+#
+# Check for missing programs required by this script
+#
+_check_missing_programs
+
+#
+# Manage any user-defined directories from the configuration checking
+# for directory existence and if writable
+#
+# NOTE:
+#   Configuration keys are passed in by name, allowing reference to
+#   derive the key name and indirection for the key value
+#
+for dir in \
+  error_log \
+  temporary_wav_location \
+  artwork_location \
+  spectrogram_location; do
+  # Skip any default (empty) configuration values
+  [[ "${!dir}" ]] || continue
+
+  # Check for existence
+  if [[ ! -d "${!dir}" ]]; then
+    _error "${cyan}${!dir}$reset does NOT exist!"
+    _error
+
+  # Check for writable
+  elif [[ ! -w "${!dir}" ]]; then
+    _error "${cyan}${!dir}$reset is NOT writable!"
+    _error
+  fi
+
+  # Rest of error messaging regardless of type of failure
+  if [[ ! -d "${!dir}" || ! -w "${!dir}" ]]; then
+    _error "Ensure a valid value for ${cyan}${dir}$reset is used"
+    _error 'in the following configuration file:'
+    _error "  ${cyan}${config_file}$reset"
+    exit 1
+  fi
+done
+
+#
+# Generate log file location
+#
+# Ensure we don't overwrite an existing log file
+item=0
+log_file="${error_log:-${HOME}}/redoflacs_$$.log"
+until [[ ! -f "$log_file" ]]; do
+  log_file="${error_log:-${HOME}}/redoflacs_$$.$((++item)).log"
+done
+
+#
+# Generate a unique temporary directory to house temporary WAV files if
+# a user specified a temporary directory
+#
+# Ensure we don't clobber the temporary directory, eg:
+#   /tmp/tmp_redoflacs_dir.1234.0 -> /tmp/tmp_redoflacs_dir.1234.1
+#
+# NOTE:
+#   This directory is only created if an operation will decode FLAC
+#   files to WAV files
+#
+if [[ "$temporary_wav_location" ]]; then
+  user_tmp_dir="tmp_redoflacs_dir.$$.0"
+  until [[ ! -d "${temporary_wav_location%/}/$user_tmp_dir" ]]; do
+    user_tmp_dir="${user_tmp_dir%.*}.$((${user_tmp_dir##*.} + 1))"
+  done
+
+  # Set the user temporary directory to a unique subdirectory to allow
+  # easy removal after script completion/termination
+  temporary_wav_location_sub_dir="${temporary_wav_location%/}/$user_tmp_dir"
+fi
+
+###############################  MAIN  #################################
+
+export LANG=C
+export LC_ALL=C
+
+# Used in _cleanup() (via trap) to determine if an abnormal signal
+# caught or there generalized (logged) failures caught by the script
+exit_code=0
+
+# Manage cleanup on interruption and script exit
+trap 'exit_code=130; exit' SIGINT
+trap 'exit_code=143; exit' SIGTERM
+trap '_cleanup; exit $exit_code' EXIT
+
+# Hide cursor
+printf '\033[?25l'
+
+job_fifo="/tmp/redoflacs_fifo_$$"          # Job manager FIFO
+issue_ticks="/tmp/redoflacs_issue_file_$$" # Issues/Errors file
+
+# Set FLAC metadata BLOCKS to NOT remove, used when pruning FLAC files
+if [[ "$remove_artwork" == 'true' ]]; then
+  # Remove PICTURE block
+  dont_prune_flac_metadata='STREAMINFO,VORBIS_COMMENT'
+else
+  # Do not remove PICTURE block
+  dont_prune_flac_metadata='STREAMINFO,PICTURE,VORBIS_COMMENT'
+fi
+
+#
+# Obtain FLAC version (used in banner)
+#
+flac_version="$(flac --version)"   # eg: flac 1.4.3
+flac_version="${flac_version##* }" # eg: 1.4.3
+
+#
+# Break out FLAC version string to major, minor and patch
+#
+IFS='.' read -r flac_major flac_minor flac_patch <<<"$flac_version"
+
+#
+# Determine the number of cores available, defaulting to 2
+#
+cores=''
+cores="${cores:-"$(command -p nproc 2>/dev/null)"}"
+cores="${cores:-"$(command -p getconf _NPROCESSORS_ONLN 2>/dev/null)"}"
+cores="${cores:-"$(command -p sysctl -n hw.ncpu 2>/dev/null)"}"
+cores="${cores:-2}"
+
+#
+# FLAC 1.5.0 introduced support for multithreaded encoding of FLAC files
+# which is checked to support multithreaded usage in compression
+# operations
+#
+if ((flac_major > 1 || flac_minor >= 5)); then
+  # FLAC version does support multithreaded encoding
+  multithreaded_flac='true'
+
+  # Compression jobs default to global jobs if global jobs is specified
+  # but no compression jobs were specified
+  [[ "$global_jobs" && ! "$compress_jobs" ]] && compress_jobs="$global_jobs"
+
+  # Default to number of cores for all other jobs (2, if cores is
+  # undetermined)
+  global_jobs="${global_jobs:-$cores}"
+
+  # Default to 2 compression threads
+  compress_threads="${compress_threads:-2}"
+
+  # Default to half as many jobs as threads when compresssing
+  compress_jobs="${compress_jobs:-$((cores / compress_threads))}"
+
+  # Sent to 'flac' during compression (encoding)
+  flac_compress_threads="--threads=$compress_threads"
+
+  # Check for CPU starvation with compression jobs * threads
+  cpu_thread_starvation=''
+  if (((compress_jobs * compress_threads) > cores)); then
+    cpu_thread_starvation='true'
+  fi
+
+  # Check for CPU starvation in user-defined global jobs
+  cpu_job_starvation=''
+  ((global_jobs > cores)) && cpu_job_starvation='true'
+else
+  # FLAC version does not support multithreaded encoding
+  multithreaded_flac=''
+
+  # Default to number of cores for all jobs (2, if cores is
+  # undetermined)
+  global_jobs="${global_jobs:-$cores}"
+
+  # FLAC < 1.5.0 does not support more than one thread
+  compress_threads=1
+  flac_compress_threads=''
+  cpu_thread_starvation=''
+
+  # Check for CPU starvation in user-defined global jobs
+  cpu_job_starvation=''
+  ((global_jobs > cores)) && cpu_job_starvation='true'
+fi
+
+#
+# These are operation title messages which are used by
+# _operation_title() to dynamically display a title via key lookup
+#
+declare -A operation_title
+operation_title['_md5check']='Verifying MD5...'
+operation_title['_test']='Testing...'
+operation_title['_compress']="Compressing To Level ${compression_level}..."
+operation_title['_aucdtect']='auCDtect Validation...'
+operation_title['_lac']='Lossless Audio Checker (LAC) Validation...'
+operation_title['_replaygain']='Applying ReplayGain...'
+operation_title['_retag']='Retagging...'
+operation_title['_extract_images']='Extracting Images...'
+operation_title['_prune']='Pruning METADATA...'
+
+#
+# Obtain the total number of lines and columns available in the terminal
+# by sending the following control sequences to the terminal driver:
+#
+#   CSI s                # Save cursor position
+#   CSI 999999 999999 H  # Move cursor to the end of the last row
+#   CSI 6 n              # Query cursor position
+#   CSI u                # Restore cursor position
+#
+# 'CSI 6 n' reports/returns the cursor position/terminal size as:
+#
+#   CSI height ; width R
+#
+# An example:
+#
+#   '\033[80;23R'
+#
+# Send CSI escape to (and read from) STDERR to not pollute STDIN
+IFS='[;' \
+  read -rsu2 -d'R' -t1 -p $'\033[s\033[999999;999999H\033[6n\033[u' \
+  _ lines columns
+
+#
+# The terminal uses 1-based column indexing (columns start at 1), but
+# shell arithmetic is 0-based
+#
+# To right-align text without manual '+ 1' adjustments in every
+# calculation, MAX_LENGTH is set to '$columns + 1'
+#
+if ((columns < 80)); then
+  readonly MAX_LENGTH="$((columns + 1))"
+else
+  readonly MAX_LENGTH='81'
+fi
+
+#
+# Print a long blank line that is one column higher than the total
+# columns in the termninal to test for line wrapping
+#
+printf "%$((columns + 1))s" ''
+
+#
+# If the current cursor column is equal to the total columns in the
+# terminal (clamping) then line wrapping is disabled
+#
+# If the current cursor column is greater than the total columns in the
+# terminal (non-clamping) then line wrapping is also disabled
+#
+if (($(_col) >= columns)); then
+  readonly LINE_WRAPPING=''
+
+  # Move back to column 0
+  printf '\r'
+else
+  readonly LINE_WRAPPING='true'
+
+  # Move back up to the previous row at column 0
+  printf '\r\033[1A'
+fi
+
+# Display a banner for runtime information and configuration settings
+_runtime_banner
+
+# _retag(): Display a countdown
+[[ " ${operations[*]} " == *' _retag '* ]] && _countdown_metadata
+
+#
+# Obtain the total FLAC files to process (files and/or directories)
+#
+# NOTE:
+#   The array of FLAC files/directories contain absolute pathnames which
+#   allows logging to determine where each item resides
+#
+_info 'Looking for FLAC files to process...'
+pushd "$directory" >/dev/null || exit
+total_items=("${PWD}"/**/*.flac)
+popd >/dev/null || exit
+
+#
+# If there were no FLAC files found, the glob will exist as index 0, eg:
+#
+#   /music/artist/album/files/**/*.[Ff][Ll][Aa][Cc]
+#
+if [[ ! -f "${total_items[0]}" ]]; then
+  found_flacs_msg='NOT FOUND'
+
+  # Right align message
+  found_flacs_align=$((MAX_LENGTH - ${#found_flacs_msg}))
+
+  # Update title message with right aligned message indicating there
+  # were no FLAC files found
+  printf "\033[$(($(_row) - 1));${found_flacs_align}H${red}%s${reset}\n" \
+    "$found_flacs_msg"
+
+  _error 'There were no FLAC files found!'
+  exit 1
+else
+  found_flacs_msg='OK'
+
+  # Right align message
+  found_flacs_align=$((MAX_LENGTH - ${#found_flacs_msg}))
+
+  # Update title message with right aligned message indicating success
+  # in finding FLAC files to process
+  printf "\033[$(($(_row) - 1));${found_flacs_align}H${green}%s${reset}\n" \
+    "$found_flacs_msg"
+fi
+
+#
+# Run through all the operations specified by the user on the provided
+# FLAC files directory
+#
+for operation in "${operations[@]}"; do
+  # Used to determine current item number being processed and used by
+  # the operation title function
+  num=0
+
+  # Use compression jobs (tied with threads) for compression operation
+  if [[ "$multithreaded_flac" && "$operation" == '_compress' ]]; then
+    operation_jobs="$compress_jobs"
+  else
+    operation_jobs="$global_jobs"
+  fi
+
+  # ReplayGain application requires operating on a directory of files
+  # instead of each file, individually
+  if [[ "$operation" == '_replaygain' ]]; then
+    # Backup all known FLAC files to process
+    total_items_backup=("${total_items[@]}")
+
+    # Obtain all the parent directories for each FLAC file (album) and
+    # store each album directory once into an array to apply ReplayGain
+    # on a directory of files instead of individual files
+    current=''
+    total_items=()
+    for dir in "${total_items_backup[@]%/*}"; do
+      previous="$current"
+      current="$dir"
+
+      # Non-matching indicates a "new" directory to store
+      [[ "$previous" != "$current" ]] && total_items+=("$current")
+    done
+  fi
+
+  # Display title message of operation
+  title_row="$(_row)"
+  _operation_title
+
+  # Scroll terminal up (if needed)
+  _scroll_terminal
+  title_row=$(($(_row) - 1))
+
+  # Clear job manager file descriptor (tied to FIFO)
+  exec 3<&- 3>&- # Close file descriptor
+
+  # Remove FIFO if it exists
+  rm -f "${job_fifo:-/dev/null/foo}"
+
+  mkfifo "$job_fifo"  # Create FIFO
+  exec 3<>"$job_fifo" # Open file descriptor read/write
+
+  # If the items to process are less than the number of jobs, add the
+  # number of items to the current row position, else add the number
+  # of jobs to run
+  if ((${#total_items[@]} < operation_jobs)); then
+    items_processed="${#total_items[@]}"
+  else
+    items_processed="$operation_jobs"
+  fi
+
+  post_row=$(($(_row) + items_processed)) # Operation row position
+
+  # Run current operation with optional parallel jobs
+  _run_parallel
+
+  # Clear all the operation lines by moving up each line and clearing it
+  # until we are just below the operation's title message
+  for ((i = 1; i <= items_processed; i++)); do
+    printf '%b' "\033[$((post_row - i))H\033[0K"
+  done
+
+  # Display completed operation
+  _operation_title
+
+  # Break out if there were any issues found in the current operation
+  #
+  # NOTE:
+  #   _cleanup() is run after script exit
+  (($(_num_issues) > 0)) && break
+
+  # Restore the items to process from directories to FLAC files after
+  # applying ReplayGain
+  if [[ "$operation" == '_replaygain' ]]; then
+    total_items=("${total_items_backup[@]}")
+  fi
+done
