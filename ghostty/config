@@ -1,5 +1,6 @@
 font-family = "FiraCode Nerd Font"
-theme = "GruvboxDark"
+theme = "Gruvbox Dark"
 window-decoration = false
 window-padding-x = 10
 window-padding-y = 10
+keybind = shift+enter=text:\n
