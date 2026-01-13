@@ -32,9 +32,9 @@ return {
 
           vim.fn.termopen("claude /commit", {
             on_exit = function()
-              vim.keymap.set("n", "q", function()
+              if vim.api.nvim_win_is_valid(win) then
                 vim.api.nvim_win_close(win, true)
-              end, { buffer = buf, desc = "Close Claude window" })
+              end
             end,
           })
 
