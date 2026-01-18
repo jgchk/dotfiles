@@ -10,37 +10,61 @@ return {
     },
   },
   {
+    "nvim-neo-tree/neo-tree.nvim",
+    optional = true,
+    opts = {
+      open_files_do_not_replace_types = { "trouble", "qf", "edgy" }, -- removed "terminal"
+    },
+  },
+  {
     dir = vim.fn.stdpath("config") .. "/lua/plugins",
     name = "claude-code",
     keys = {
       {
         "<leader>ac",
         function()
-          local buf = vim.api.nvim_create_buf(false, true)
-          local width = math.floor(vim.o.columns * 0.8)
-          local height = math.floor(vim.o.lines * 0.8)
-
-          local win = vim.api.nvim_open_win(buf, true, {
-            relative = "editor",
-            width = width,
-            height = height,
-            col = math.floor((vim.o.columns - width) / 2),
-            row = math.floor((vim.o.lines - height) / 2),
-            style = "minimal",
-            border = "rounded",
-          })
-
-          vim.fn.termopen("claude /commit", {
-            on_exit = function()
-              if vim.api.nvim_win_is_valid(win) then
-                vim.api.nvim_win_close(win, true)
-              end
-            end,
-          })
-
+          -- Switch to a normal window if in a special buffer (neo-tree, etc.)
+          if vim.bo.filetype == "neo-tree" or vim.bo.buftype ~= "" then
+            vim.cmd("wincmd p")
+          end
+          vim.cmd("enew")
+          vim.bo.modified = false
+          vim.fn.termopen("claude")
+          vim.bo.buflisted = true
+          vim.bo.bufhidden = "hide"
           vim.cmd("startinsert")
         end,
-        desc = "Claude commit",
+        desc = "Claude Code",
+      },
+      {
+        "<leader>aC",
+        function()
+          if vim.bo.filetype == "neo-tree" or vim.bo.buftype ~= "" then
+            vim.cmd("wincmd p")
+          end
+          vim.cmd("enew")
+          vim.bo.modified = false
+          vim.fn.termopen("claude --continue")
+          vim.bo.buflisted = true
+          vim.bo.bufhidden = "hide"
+          vim.cmd("startinsert")
+        end,
+        desc = "Claude Code (continue)",
+      },
+      {
+        "<leader>ar",
+        function()
+          if vim.bo.filetype == "neo-tree" or vim.bo.buftype ~= "" then
+            vim.cmd("wincmd p")
+          end
+          vim.cmd("enew")
+          vim.bo.modified = false
+          vim.fn.termopen("claude --resume")
+          vim.bo.buflisted = true
+          vim.bo.bufhidden = "hide"
+          vim.cmd("startinsert")
+        end,
+        desc = "Claude Code (resume)",
       },
     },
   },
