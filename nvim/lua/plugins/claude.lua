@@ -19,6 +19,17 @@ return {
   {
     dir = vim.fn.stdpath("config") .. "/lua/plugins",
     name = "claude-code",
+    init = function()
+      -- Terminal mode mappings to escape and navigate
+      -- Double-escape exits terminal mode
+      vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
+      -- Allow window navigation from terminal mode with Ctrl-w prefix
+      vim.keymap.set("t", "<C-w>h", [[<C-\><C-n><C-w>h]], { desc = "Go to left window" })
+      vim.keymap.set("t", "<C-w>j", [[<C-\><C-n><C-w>j]], { desc = "Go to window below" })
+      vim.keymap.set("t", "<C-w>k", [[<C-\><C-n><C-w>k]], { desc = "Go to window above" })
+      vim.keymap.set("t", "<C-w>l", [[<C-\><C-n><C-w>l]], { desc = "Go to right window" })
+      vim.keymap.set("t", "<C-w>w", [[<C-\><C-n><C-w>w]], { desc = "Go to next window" })
+    end,
     keys = {
       {
         "<leader>ac",
