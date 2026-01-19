@@ -1,6 +1,6 @@
 directory: /mnt/monad/jake/Music
-library: /mnt/monad/jake/Applications/beets/library.db
-# library: ~/Downloads/library.db
+# library: /mnt/monad/jake/Applications/beets/library.db
+library: ~/.config/beets/library.db
 
 import:
   move: yes
