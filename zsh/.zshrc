@@ -97,3 +97,6 @@ source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 
 # Search pkgfile database for unknown commands
 source /usr/share/doc/pkgfile/command-not-found.zsh
+
+# Zoxide
+eval "$(zoxide init zsh)"
