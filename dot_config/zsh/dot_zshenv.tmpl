@@ -1,6 +1,11 @@
 # Path init
 typeset -U path PATH
 path=(~/.local/bin $path)
+{{- if eq .chezmoi.os "darwin" }}
+
+# Homebrew
+eval "$(/opt/homebrew/bin/brew shellenv)"
+{{- end }}
 
 # XDG
 export XDG_CONFIG_HOME=$HOME/.config

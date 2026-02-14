@@ -82,8 +82,8 @@ proj() {
     cd "$HOME/Projects/$1"
 }
 
-# Github Copilot CLI
-eval "$(github-copilot-cli alias -- "$0")"
+# Github Copilot CLI (deprecated - now use `gh copilot`)
+(( $+commands[github-copilot-cli] )) && eval "$(github-copilot-cli alias -- "$0")"
 
 # FNM (Fast Node Manager)
 eval "$(fnm env --use-on-cd)"
