@@ -19,5 +19,6 @@
 {{ end }}
 
 {{ if eq .chezmoi.os "linux" }}
-# Nothing macOS-only currently
+# macOS-only paths
+Library/Application Support/lazygit
 {{ end }}
