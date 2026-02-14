@@ -1,0 +1,6 @@
+customCommands:
+  - key: 'C'
+    context: 'files'
+    command: ~/.local/bin/,commit
+    output: terminal
+    description: 'AI-powered commit'

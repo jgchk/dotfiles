@@ -1,0 +1,23 @@
+{{ if eq .chezmoi.os "darwin" }}
+# Linux-only desktop environment
+.config/hypr
+.config/dunst
+.config/eww
+.config/rofi
+.config/beets
+.config/kitty
+
+# Arch-only scripts
+.local/bin/clean-yay
+.local/bin/clean-yay-cache
+.local/bin/clean-yay-packages
+.local/bin/mirrors
+.local/bin/update
+.local/bin/up
+.local/bin/record
+.local/bin/redoflacs
+{{ end }}
+
+{{ if eq .chezmoi.os "linux" }}
+# Nothing macOS-only currently
+{{ end }}

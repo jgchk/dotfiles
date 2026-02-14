@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# ,commit — AI-powered conventional commit message generator
+# Generates 3 commit message options via claude CLI, lets you pick one.
+
+set -euo pipefail
+
+# --- Preflight ---
+
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+	echo "Error: not inside a git repository" >&2
+	exit 1
+fi
+
+if ! command -v claude &>/dev/null; then
+	echo "Error: 'claude' CLI not found" >&2
+	exit 1
+fi
+
+# --- Get diff ---
+
+diff_source=""
+diff_content=""
+
+diff_content="$(git diff --cached)"
+if [[ -n "$diff_content" ]]; then
+	diff_source="staged"
+else
+	diff_content="$(git diff)"
+	if [[ -n "$diff_content" ]]; then
+		diff_source="unstaged"
+	else
+		echo "Error: no staged or unstaged changes found" >&2
+		exit 1
+	fi
+fi
+
+echo "Using $diff_source changes."
+
+# --- Prompt ---
+
+base_prompt='You are a commit message generator. Based on the git diff provided via stdin, generate exactly 3 different Conventional Commit message options.
+
+Rules:
+- Format: type(scope): description
+- Valid types: feat, fix, chore, refactor, docs, style, test, perf, build, ci
+- Scope should reflect the area of change
+- Subject line: lowercase after colon, imperative mood, no period
+- For simple changes: subject line only
+- For complex changes: subject line, blank line, concise body paragraph
+- Each option should offer a meaningfully different perspective
+- Do NOT number the options or add labels/prefixes
+- Separate the 3 options with exactly this delimiter on its own line: ---OPTION---
+
+Output ONLY the 3 commit messages separated by delimiters, nothing else.'
+
+# --- Generate / Select loop ---
+
+additional_context=""
+
+while true; do
+	# Build prompt with optional context
+	prompt="$base_prompt"
+	if [[ -n "$additional_context" ]]; then
+		prompt="$prompt
+
+Additional context from the author: $additional_context"
+	fi
+
+	echo ""
+	echo "Generating commit messages..."
+
+	raw_output=""
+	if ! raw_output="$(echo "$diff_content" | claude -p --no-session-persistence "$prompt" 2>&1)"; then
+		echo "Error: claude command failed:" >&2
+		echo "$raw_output" >&2
+		exit 1
+	fi
+
+	# --- Parse options ---
+
+	parse_option() {
+		echo "$raw_output" | awk -v n="$1" 'BEGIN{RS="---OPTION---"} NR==n' | sed '/^[[:space:]]*$/d' | sed '1s/^[[:space:]]*//' | sed '$s/[[:space:]]*$//'
+	}
+
+	opt1="$(parse_option 1)"
+	opt2="$(parse_option 2)"
+	opt3="$(parse_option 3)"
+
+	if [[ -z "$opt1" || -z "$opt2" || -z "$opt3" ]]; then
+		echo "Warning: failed to parse 3 options from response. Retrying..." >&2
+		echo "Raw output:" >&2
+		echo "$raw_output" >&2
+		echo "" >&2
+		continue
+	fi
+
+	# --- Display options ---
+
+	ruler="─────────────────────────────────────────────"
+
+	echo ""
+	for i in 1 2 3; do
+		varname="opt$i"
+		msg="${!varname}"
+		subject="$(echo "$msg" | head -n1)"
+		body="$(echo "$msg" | tail -n +2 | sed '/^[[:space:]]*$/d')"
+
+		echo "─── $i $ruler"
+		echo "$subject"
+		if [[ -n "$body" ]]; then
+			echo ""
+			echo "$body"
+		fi
+		echo ""
+	done
+
+	# --- Input loop ---
+
+	while true; do
+		read -rp "Pick [1/2/3] or [R]egenerate: " choice
+		case "$choice" in
+		1) selected="$opt1"; break 2 ;;
+		2) selected="$opt2"; break 2 ;;
+		3) selected="$opt3"; break 2 ;;
+		[Rr])
+			read -rep "Context (Ctrl-U to clear): " -i "$additional_context" additional_context
+			break
+			;;
+		*)
+			echo "Invalid choice."
+			;;
+		esac
+	done
+done
+
+# --- Commit ---
+
+if [[ "$diff_source" == "unstaged" ]]; then
+	git add -A
+fi
+
+subject_line="$(echo "$selected" | head -n1)"
+
+if ! echo "$selected" | git commit -F -; then
+	echo "Error: git commit failed" >&2
+	exit 1
+fi
+
+echo ""
+echo "Committed: $subject_line"
