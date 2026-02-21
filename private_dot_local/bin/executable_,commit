@@ -124,7 +124,13 @@ Additional context from the author: $additional_context"
 		2) selected="$opt2"; break 2 ;;
 		3) selected="$opt3"; break 2 ;;
 		[Rr])
-			read -rep "Context (Ctrl-U to clear): " -i "$additional_context" additional_context
+			if [[ -n "$additional_context" ]]; then
+				echo "(Previous: $additional_context)"
+			fi
+			read -rp "Context (empty keeps previous): " new_context
+			if [[ -n "$new_context" ]]; then
+				additional_context="$new_context"
+			fi
 			break
 			;;
 		*)
