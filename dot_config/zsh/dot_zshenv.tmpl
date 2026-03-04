@@ -48,6 +48,12 @@ path=($ANDROID_HOME/platform-tools $path)
 
 # GnuPG
 export GNUPGHOME="$XDG_DATA_HOME"/gnupg
+{{- if eq .machine_type "work" }}
+
+# Itential
+export ITENTIAL_FOLDER=$HOME/itential
+path=($ITENTIAL_FOLDER/itential-env/scripts $path)
+{{- end }}
 
 # Path export
 export PATH
