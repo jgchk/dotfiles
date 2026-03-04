@@ -80,7 +80,7 @@ Additional context from the author: $additional_context"
 	# --- Parse options ---
 
 	parse_option() {
-		echo "$raw_output" | awk -v n="$1" 'BEGIN{RS="---OPTION---"} NR==n' | sed '/^[[:space:]]*$/d' | sed '1s/^[[:space:]]*//' | sed '$s/[[:space:]]*$//'
+		echo "$raw_output" | awk -v n="$1" 'BEGIN{RS="---OPTION---"} NR==n' | sed '/^[[:space:]]*```/d' | sed '/^[[:space:]]*$/d' | sed '1s/^[[:space:]]*//' | sed '$s/[[:space:]]*$//'
 	}
 
 	opt1="$(parse_option 1)"
