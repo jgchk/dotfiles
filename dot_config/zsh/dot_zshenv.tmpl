@@ -49,6 +49,10 @@ export GRADLE_USER_HOME="$XDG_DATA_HOME"/gradle
 path=($ANDROID_HOME/platform-tools $path)
 {{- end }}
 
+# Editor
+export EDITOR=nvim
+export VISUAL=nvim
+
 # GnuPG
 export GNUPGHOME="$XDG_DATA_HOME"/gnupg
 {{- if eq .machine_type "work" }}
