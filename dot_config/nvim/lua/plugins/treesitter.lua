@@ -4,6 +4,7 @@ local languages = {
   "markdown",
   "clojure",
   "typescript",
+  "json",
 }
 
 return {
