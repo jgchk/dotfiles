@@ -1,3 +1,5 @@
+.config/nvim/nvim-pack-lock.json
+
 {{ if eq .chezmoi.os "darwin" }}
 # Linux-only desktop environment
 .config/hypr
