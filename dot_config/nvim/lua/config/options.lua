@@ -1,3 +1,7 @@
+-- Case-insensitive search unless pattern contains uppercase
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+
 -- Use system clipboard
 vim.opt.clipboard = "unnamedplus"
 
