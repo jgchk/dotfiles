@@ -21,7 +21,7 @@ fi
 # --- Get diff ---
 
 diff_content=""
-diff_content="$(jj diff)"
+diff_content="$(jj diff --git)"
 
 if [[ -z "$diff_content" ]]; then
 	echo "Error: no changes in the current jj change" >&2
