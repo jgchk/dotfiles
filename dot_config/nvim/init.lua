@@ -5,6 +5,7 @@ vim.g.maplocalleader = "\\"
 require("config.options")
 require("config.keymaps")
 require("config.commands")
+require("config.lsp")
 
 -- Walk lua/plugins/ and load each spec.
 local specs = {}
