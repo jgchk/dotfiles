@@ -1,4 +1,4 @@
-vim.lsp.enable("tsgo")
+vim.lsp.enable("vtsls")
 
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
