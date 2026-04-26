@@ -27,8 +27,9 @@ vim.api.nvim_create_autocmd('LspAttach', {
   callback = function(ev)
     local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
 
-    vim.keymap.set("n", "]d", function() vim.diagnostic.jump({ count = 1, float = true }) end, { buf = bufnr, desc = "Next diagnostic" })
-    vim.keymap.set("n", "[d", function() vim.diagnostic.jump({ count = -1, float = true }) end, { buf = bufnr, desc = "Prev diagnostic" })
+    vim.keymap.set("n", "gd", vim.lsp.buf.definition, { buffer = ev.buf, desc = "Go to definition" })
+    vim.keymap.set("n", "]d", function() vim.diagnostic.jump({ count = 1, float = true }) end, { buffer = ev.buf, desc = "Next diagnostic" })
+    vim.keymap.set("n", "[d", function() vim.diagnostic.jump({ count = -1, float = true }) end, { buffer = ev.buf, desc = "Prev diagnostic" })
 
     -- Enable auto-completion. Note: Use CTRL-Y to select an item. |complete_CTRL-Y|
     if client:supports_method('textDocument/completion') then
