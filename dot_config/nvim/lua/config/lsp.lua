@@ -11,7 +11,15 @@ vim.keymap.set('i', '<S-Tab>', function()
 end, { expr = true })
 
 vim.keymap.set('i', '<CR>', function()
-  return vim.fn.pumvisible() == 1 and '<C-y>' or '<CR>'
+  if vim.fn.pumvisible() == 1 then
+    local info = vim.fn.complete_info({ 'selected', 'items' })
+    if info.selected >= 0 then
+      return '<C-y>'                -- confirm already-selected item
+    elseif #info.items == 1 then
+      return '<C-n><C-y>'           -- only one option: select it then confirm
+    end
+  end
+  return '<CR>'
 end, { expr = true })
 
 vim.api.nvim_create_autocmd('LspAttach', {
