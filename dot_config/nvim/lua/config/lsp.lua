@@ -1,6 +1,18 @@
 vim.lsp.enable("vtsls")
 
-vim.opt.completeopt = { "menuone", "noselect", "popup" } 
+vim.opt.completeopt = { "menuone", "noselect", "popup" }
+
+vim.keymap.set('i', '<Tab>', function()
+  return vim.fn.pumvisible() == 1 and '<C-n>' or '<Tab>'
+end, { expr = true })
+
+vim.keymap.set('i', '<S-Tab>', function()
+  return vim.fn.pumvisible() == 1 and '<C-p>' or '<S-Tab>'
+end, { expr = true })
+
+vim.keymap.set('i', '<CR>', function()
+  return vim.fn.pumvisible() == 1 and '<C-y>' or '<CR>'
+end, { expr = true })
 
 vim.api.nvim_create_autocmd('LspAttach', {
   group = vim.api.nvim_create_augroup('my.lsp', {}),
