@@ -32,6 +32,7 @@ vim.api.nvim_create_autocmd('LspAttach', {
     vim.keymap.set("n", "cr", vim.lsp.buf.rename, { buffer = ev.buf, desc = "Rename symbol" })
     vim.keymap.set("n", "]d", function() vim.diagnostic.jump({ count = 1, float = true }) end, { buffer = ev.buf, desc = "Next diagnostic" })
     vim.keymap.set("n", "[d", function() vim.diagnostic.jump({ count = -1, float = true }) end, { buffer = ev.buf, desc = "Prev diagnostic" })
+    vim.keymap.set({ "n", "v" }, "ca", vim.lsp.buf.code_action, { buffer = ev.buf, desc = "Code actions" })
 
     -- Enable auto-completion. Note: Use CTRL-Y to select an item. |complete_CTRL-Y|
     if client:supports_method('textDocument/completion') then
