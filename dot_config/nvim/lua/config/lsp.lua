@@ -1,4 +1,5 @@
 vim.lsp.enable("vtsls")
+vim.lsp.enable("eslint")
 
 vim.opt.completeopt = { "menuone", "noselect", "popup" }
 
