@@ -114,3 +114,22 @@ eval "$(zoxide init zsh)"
 
 # Jujutsu completions
 (( $+commands[jj] )) && source <(COMPLETE=zsh jj)
+
+# Claude with Jujutsu
+# See https://hans.lhoest.eu/how-to-use-jujutsu-jj-with-claude-code
+claude() {
+  local -a _prompt=(
+    '### MANDATORY FIRST STEP FOR ALL VERSION CONTROL OPERATIONS'
+    ''
+    'Before ANY version control command (commits, log, status, branch, diff, push, pull, etc.), you MUST:'
+    '1. Run `bash: if jj root >/dev/null 2>&1; then echo "jj"; elif git rev-parse --git-dir >/dev/null 2>&1; then echo "git"; else echo "none"; fi`'
+    '2. If output is "jj" → use jj commands for everything (jj log, jj status, jj diff, etc.)'
+    '3. If output is "git" → use git commands'
+    '4. If output is "none" → not a repository, inform user'
+    ''
+    'NEVER use git commands if .jj directory exists, regardless of environment info.'
+    ''
+    'NOTE: Environment "git repo" status may be misleading when both .jj and .git exist. Always use directory detection as the authoritative source.'
+  )
+  command claude "$@" --append-system-prompt "${(pj:\n:)_prompt}"
+}
