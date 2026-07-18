@@ -23,14 +23,14 @@
        :space-evenly true
        :spacing "5"
 
-    (metric :icon "" :xpos -2 (music-button))
+    (metric :icon "" :xpos -2 :font-size 17 (music-button))
 
     (volume)
 
-    (metric :icon "󰋊" :font-size 1.06
+    (metric :icon "󰋊" :font-size 15
       "${round((1 - (EWW_DISK["/"].free / EWW_DISK["/"].total)) * 100, 0)}%")
 
-    (metric :icon "󰒋" "${round(EWW_RAM.used_mem_perc, 0)}%")
+    (metric :icon "󰒋" :font-size 16 "${round(EWW_RAM.used_mem_perc, 0)}%")
 
     (metric :icon "" "${round(EWW_CPU.avg, 0)}%")
 
@@ -79,8 +79,8 @@
 (defwidget metric [icon ?font-size ?xpos]
   (box :class "metric" 
        :orientation "v"
-    (label :class "metric-icon" 
-           :style "${font-size != "" ? "font-size: ${font-size}rem;" : ""}${xpos != "" ? "margin-left: ${xpos}px;" : ""}"
+    (label :class "metric-icon"
+           :style "${font-size != "" ? "font-size: ${font-size}px;" : ""}${xpos != "" ? "margin-left: ${xpos}px;" : ""}"
            :text icon)
     (children)))
 
@@ -90,6 +90,7 @@
 (deflisten music_data :initial `{"status": ""}` "bash ~/.config/eww/scripts/get-music-status.sh")
 (defwidget music-button []
   (button :onclick "playerctl play-pause"
+          :style "font-size: 15px;"
     "${music_data == "" ? "" : music_data.status == "Playing" ? "" : ""}"))
 
 
@@ -115,8 +116,8 @@
            :vexpand true
         (button :onclick "pamixer -t"
           (label :class "metric-icon"
-                 :style "font-size: 1.2rem;"
-                 :text "${audio_data.muted ? "婢" : "墳"}"))
+                 :style "font-size: 20px;"
+                 :text "${audio_data.muted ? "󰖁" : "󰕾"}"))
         (button :onclick "pavucontrol &" :style "padding-bottom: 6px;"
           "${audio_data.volume}%")))))
 
