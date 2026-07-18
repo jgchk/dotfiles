@@ -14,7 +14,7 @@ prompt='Screenshot'
 mesg="DIR: $(xdg-user-dir PICTURES)/Screenshots"
 
 # Grimshot Command
-grimshot=/usr/share/sway-contrib/grimshot
+grimshot=$(command -v grimshot || echo /usr/share/sway-contrib/grimshot)
 
 if [[ "$theme" == *'type-1'* ]]; then
   list_col='1'
