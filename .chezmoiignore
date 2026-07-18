@@ -1,5 +1,8 @@
 .config/nvim/nvim-pack-lock.json
 
+# Repo docs — should not be deployed into $HOME
+README.md
+
 {{ if eq .chezmoi.os "darwin" }}
 # Linux-only desktop environment
 .config/hypr
@@ -22,5 +25,5 @@
 
 {{ if eq .chezmoi.os "linux" }}
 # macOS-only paths
-Library/Application Support/lazygit
+Library
 {{ end }}
