@@ -2,6 +2,7 @@
 
 # Repo docs — should not be deployed into $HOME
 README.md
+docs
 
 {{ if eq .chezmoi.os "darwin" }}
 # Linux-only desktop environment

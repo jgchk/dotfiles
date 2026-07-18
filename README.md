@@ -20,6 +20,10 @@ chezmoi init --apply git@github.com:jgchk/dotfiles.git
 
 You'll be prompted for machine type (`work` or `personal`). After that, all configs are deployed — Linux-only stuff is automatically skipped on macOS and vice versa.
 
+`chezmoi apply` only lays down config **files**. For the programs those configs
+depend on and the steps that must be run by hand (SSH key, package installs,
+fonts, tmux/nvim plugin bootstrap), follow **[docs/first-setup.md](docs/first-setup.md)**.
+
 ## Making changes
 
 ### Edit a config directly, then tell chezmoi about it
