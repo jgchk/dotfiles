@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# patch-berkeleymono — build & install "BerkeleyMono Nerd Font Mono" from the
+# original Berkeley Mono TTFs stored in this dotfiles repo.
+#
+# The originals live in the chezmoi source under .fonts-src/berkeleymono/ (a
+# dot-prefixed dir, so chezmoi never deploys them). Berkeley Mono is a paid
+# font — keep the dotfiles repo private.
+#
+# Usage: patch-berkeleymono [SRC_DIR]
+#   SRC_DIR  directory of unpatched Berkeley Mono *.ttf (default: repo copy)
+#
+# Env overrides:
+#   FONTPATCHER_ZIP  path to a local FontPatcher.zip (skips the download)
+set -euo pipefail
+
+INSTALL_DIR="$HOME/.local/share/fonts/BerkeleyMonoNerdFont"
+PATCHER_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FontPatcher.zip"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+# --- deps ---
+for c in fontforge curl unzip fc-cache; do
+  command -v "$c" >/dev/null 2>&1 || die "missing '$c' (Arch: sudo pacman -S ${c/fc-cache/fontconfig})"
+done
+
+# --- locate the original fonts ---
+if [ "${1:-}" ]; then
+  SRC_DIR="$1"
+elif command -v chezmoi >/dev/null 2>&1; then
+  SRC_DIR="$(chezmoi source-path)/.fonts-src/berkeleymono"
+else
+  SRC_DIR="$HOME/.local/share/chezmoi/.fonts-src/berkeleymono"
+fi
+[ -d "$SRC_DIR" ] || die "source font dir not found: $SRC_DIR"
+shopt -s nullglob
+originals=("$SRC_DIR"/*.ttf)
+[ "${#originals[@]}" -gt 0 ] || die "no .ttf files in $SRC_DIR"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# --- get the patcher (FontPatcher.zip is small: patcher + glyph sources) ---
+if [ "${FONTPATCHER_ZIP:-}" ] && [ -f "${FONTPATCHER_ZIP:-}" ]; then
+  cp "$FONTPATCHER_ZIP" "$work/FontPatcher.zip"
+else
+  echo ":: downloading FontPatcher.zip"
+  curl -fsSL -o "$work/FontPatcher.zip" "$PATCHER_URL"
+fi
+unzip -oq "$work/FontPatcher.zip" -d "$work"
+
+# --- patch (--mono => single-width + the 'Nerd Font Mono' family name) ---
+mkdir -p "$work/patched"
+for f in "${originals[@]}"; do
+  echo ":: patching $(basename "$f")"
+  ( cd "$work" && fontforge -quiet -script font-patcher "$f" \
+      --mono --complete --outputdir "$work/patched" >/dev/null 2>&1 )
+done
+
+# --- install ---
+mkdir -p "$INSTALL_DIR"
+cp "$work"/patched/*.ttf "$INSTALL_DIR"/
+fc-cache -f "$INSTALL_DIR" >/dev/null
+echo ":: installed $(ls -1 "$INSTALL_DIR"/*.ttf | wc -l) styles to $INSTALL_DIR"
+echo ":: fc-match -> $(fc-match 'BerkeleyMono Nerd Font Mono')"
+echo "done. Restart your terminal to pick up the font."
