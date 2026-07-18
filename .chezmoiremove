@@ -1,0 +1,4 @@
+# Files to remove from the target ($HOME) on `chezmoi apply`.
+
+# Replaced by hyprsunset (dot_config/hypr/hyprsunset.conf).
+.config/hypr/hyprshade.toml

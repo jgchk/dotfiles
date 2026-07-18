@@ -75,15 +75,18 @@ Plugins auto-install on first `nvim` launch (native `vim.pack`). See §4.
 
 ```bash
 # official repos
-sudo pacman -S hyprland hyprpaper wl-clipboard cliphist polkit-gnome \
+sudo pacman -S hyprland hyprpaper hyprsunset wl-clipboard cliphist polkit-gnome \
                udiskie rofi dunst kitty
 
 # AUR (via yay) — verify names, these move around
-yay -S eww swaync hyprshade
+yay -S eww swaync
 ```
 
+`hyprsunset` is the blue-light filter (schedule in `hypr/hyprsunset.conf`); it
+replaced `hyprshade`.
+
 Autostarted by `hypr/configs/exec.conf`: `polkit-gnome`, `hyprpaper`,
-`wl-paste`/`cliphist`, `swaync`, `udiskie`, `eww`, `hyprshade`.
+`hyprsunset`, `wl-paste`/`cliphist`, `swaync`, `udiskie`, `eww`.
 
 ### Misc apps (optional, only if you use them)
 
