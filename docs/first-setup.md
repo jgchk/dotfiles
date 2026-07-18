@@ -40,7 +40,7 @@ skip the whole Hyprland desktop group).
 ### Shell + CLI core
 
 ```bash
-sudo pacman -S zsh starship zoxide fzf jujutsu lazygit \
+sudo pacman -S zsh tmux starship zoxide fzf jujutsu lazygit \
                zsh-autosuggestions zsh-syntax-highlighting pkgfile
 ```
 
@@ -113,16 +113,16 @@ sudo pacman -S fontforge      # patcher dependency
 patch-berkeleymono            # deployed to ~/.local/bin by chezmoi
 ```
 
-### tmux — plugin manager (TPM)
+### tmux — plugins (automated)
 
-TPM must be cloned once; the config expects it at `~/.tmux/plugins/tpm`:
+Nothing to do by hand. A chezmoi `run_onchange_` script
+(`.chezmoiscripts/run_onchange_after_install-tmux-plugins.sh.tmpl`) clones TPM to
+`~/.tmux/plugins/tpm` and runs `install_plugins` non-interactively.
 
-```bash
-git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
-```
-
-Then start tmux and press **`prefix` + `I`** (prefix is `C-Space`) to install
-the plugins listed in `tmux.conf`.
+It runs on `chezmoi apply` and re-runs automatically when either the plugin list
+in `tmux.conf` changes **or** tmux first becomes available. So if you installed
+tmux (§2) *after* the initial `chezmoi init`, just run `chezmoi apply` once more
+and the plugins install themselves — no `prefix + I` needed.
 
 ### Neovim — first launch
 

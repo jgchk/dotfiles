@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Bootstrap TPM and install/update tmux plugins non-interactively.
+# Re-runs whenever tmux.conf changes (the hash below is part of this script's
+# content, and chezmoi re-runs run_onchange_ scripts when their content changes).
+# tmux.conf is the single source of truth for the plugin list.
+set -eu
+
+# tmux.conf hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
+# tmux available:  {{ if lookPath "tmux" }}yes{{ else }}no{{ end }}
+# (the line above makes this re-run once tmux gets installed, even if the
+#  first apply happened on a machine that didn't have tmux yet)
+
+command -v tmux >/dev/null 2>&1 || { echo "tmux not installed; skipping plugin install"; exit 0; }
+command -v git  >/dev/null 2>&1 || { echo "git not installed; skipping plugin install"; exit 0; }
+
+TPM_DIR="$HOME/.tmux/plugins/tpm"
+if [ ! -d "$TPM_DIR" ]; then
+  echo ":: cloning TPM into $TPM_DIR"
+  git clone --depth 1 https://github.com/tmux-plugins/tpm "$TPM_DIR"
+fi
+
+echo ":: installing/updating tmux plugins"
+"$TPM_DIR/bin/install_plugins"
