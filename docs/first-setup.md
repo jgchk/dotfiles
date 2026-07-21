@@ -6,7 +6,8 @@ the checklist for those steps.
 
 > **Status:** work in progress — grown from real config dependencies. Verify
 > package names against your repos (some are AUR) and add anything missing as
-> you hit it. Arch Linux focused.
+> you hit it. Primarily Arch Linux; macOS (Homebrew) equivalents are called out
+> where they differ. The desktop (Hyprland) group is Linux-only.
 
 ---
 
@@ -51,22 +52,42 @@ sudo pacman -S zsh tmux starship zoxide fzf jujutsu lazygit \
 - `jujutsu` provides the `jj` binary (shell completions are wired up in `.zshrc`).
 - Set zsh as the login shell if it isn't: `chsh -s $(which zsh)`.
 
-### Node toolchain (needed by nvim LSP + some CLIs)
+### Node runtime
 
 ```bash
-sudo pacman -S fnm          # Node version manager (`.zshrc` runs `fnm env`)
+sudo pacman -S fnm          # Arch — Node version manager (`.zshrc` runs `fnm env`)
+# macOS:  brew install fnm
 fnm install --lts
-npm i -g @vtsls/language-server vscode-langservers-extracted prettier
 ```
 
-- `@vtsls/language-server` → `vtsls` (TypeScript LSP used by nvim).
-- `vscode-langservers-extracted` → `eslint` language server.
+### Neovim tooling — LSP servers, formatter, treesitter parsers
+
+nvim expects these binaries on `PATH`. **Prefer your system package manager over
+`npm i -g`** — npm global installs live inside the *active* fnm Node version's
+directory and silently disappear the next time fnm switches versions, which shows
+up as `language server ... not installed` or `no such command tree-sitter` errors.
+
+| Tool | Binary | Arch | macOS |
+|------|--------|------|-------|
+| TypeScript LSP | `vtsls` | `yay -S vtsls` (AUR) | `npm i -g @vtsls/language-server` |
+| ESLint / JSON / HTML / CSS LSP | `vscode-eslint-language-server` | `yay -S vscode-langservers-extracted` (AUR) | `npm i -g vscode-langservers-extracted` |
+| Formatter | `prettier` | `sudo pacman -S prettier` | `brew install prettier` |
+| Treesitter parser compiler | `tree-sitter` | `sudo pacman -S tree-sitter-cli` | `brew install tree-sitter` |
+
+- `vtsls` / `eslint` are the servers enabled in `nvim/lua/config/lsp.lua`.
 - `prettier` → used by conform.nvim for formatting.
+- `tree-sitter` (CLI) compiles the parsers listed in
+  `nvim/lua/plugins/treesitter.lua` — nvim-treesitter's `main` branch builds them
+  from source on `:TSUpdate` / first launch.
+- `vtsls` and `vscode-langservers-extracted` have no Homebrew formula, so macOS
+  falls back to npm for those two. If you use npm, run `fnm default <version>` and
+  reinstall after any Node upgrade so the globals don't vanish.
 
 ### Editor
 
 ```bash
-sudo pacman -S neovim        # needs a version with vim.pack (Neovim ≥ 0.12 / nightly)
+sudo pacman -S neovim        # Arch — needs vim.pack (Neovim ≥ 0.12 / nightly)
+# macOS:  brew install neovim
 ```
 
 Plugins auto-install on first `nvim` launch (native `vim.pack`). See §4.
@@ -130,8 +151,9 @@ and the plugins install themselves — no `prefix + I` needed.
 ### Neovim — first launch
 
 Just run `nvim`. `vim.pack` downloads and installs plugins on startup; quit and
-reopen once it finishes. Treesitter parsers compile on demand (needs a C
-compiler — `base-devel`).
+reopen once it finishes. Treesitter parsers compile on demand — this needs the
+`tree-sitter` CLI (see §2) **and** a C compiler (`base-devel` on Arch, Xcode
+Command Line Tools / `xcode-select --install` on macOS).
 
 ---
 
