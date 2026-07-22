@@ -2,3 +2,6 @@
 
 # Replaced by hyprsunset (dot_config/hypr/hyprsunset.conf).
 .config/hypr/hyprshade.toml
+
+# Active-workspace tracking folded into get-workspaces.sh (letter/named workspaces).
+.config/eww/scripts/get-active-workspace.sh

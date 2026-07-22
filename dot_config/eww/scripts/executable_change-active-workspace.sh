@@ -1,22 +1,12 @@
-#! /bin/bash
+#!/usr/bin/env bash
 #
-function clamp {
-	min=$1
-	max=$2
-	val=$3
-	python -c "print(max($min, min($val, $max)))"
-}
+# Scroll handler for the eww workspace widget. Cycles through the workspaces
+# that currently exist (numbered and named alike) using Hyprland's relative
+# e+1 / e-1 dispatch, so there is no fixed range to clamp to.
 
 direction=$1
-current=$2
-if test "$direction" = "down"
-then
-	target=$(clamp 1 10 $(($current+1)))
-	echo "jumping to $target"
-	hyprctl dispatch workspace $target
-elif test "$direction" = "up"
-then
-	target=$(clamp 1 10 $(($current-1)))
-	echo "jumping to $target"
-	hyprctl dispatch workspace $target
+if [ "$direction" = "down" ]; then
+  hyprctl dispatch workspace e+1
+elif [ "$direction" = "up" ]; then
+  hyprctl dispatch workspace e-1
 fi

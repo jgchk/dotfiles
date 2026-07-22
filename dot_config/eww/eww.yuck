@@ -42,30 +42,21 @@
 
 
 (deflisten workspace "scripts/get-workspaces.sh")
-(deflisten activews :initial 1 `scripts/get-active-workspace.sh`)
 (defwidget workspaces []
   (eventbox
-    :onscroll "bash ~/.config/eww/scripts/change-active-workspace.sh {} ${activews}"
+    :onscroll "bash ~/.config/eww/scripts/change-active-workspace.sh {}"
     :class "workspaces-widget"
-    (overlay
-      ; Only displays workspace state (has windows or not)
-      (box
-        :orientation "v"
-        :class "workspaces"
-        :spacing 0
-        (for i in workspace
-          (button
-            :onclick "hyprctl dispatch workspace ${i.id}"
-            :class "workspace-entry ${i.id == activews ? "current" : ""} ${i.windows > 0 ? "occupied" : "empty"}"
-            (label
-              :text "${i.windows > 0 ? "◆" : "◇"}"
-            )
-          )
-        )
-      )
-    )
-  )
-)
+    ; Shows only occupied workspaces plus the active one, labeled by name
+    ; (letter for named workspaces, digit for numbered ones).
+    (box
+      :orientation "v"
+      :class "workspaces"
+      :spacing 0
+      (for i in workspace
+        (button
+          :onclick "hyprctl dispatch workspace ${i.target}"
+          :class "workspace-entry ${i.active ? "current" : ""} ${i.windows > 0 ? "occupied" : "empty"}"
+          (label :text "${i.name}"))))))
 
 
 (defwidget time []

@@ -17,17 +17,20 @@ window {
 .workspaces {
   .workspace-entry {
     background: none;
-    margin: 0px 3px;
-    padding-left: 1px;
+    margin: 3px 0px;
     font-size: 0.95rem;
+    color: #a89984;
 
-    &.current {
-      color: #98971a;
-      font-size: 1.2rem;
-    }
     &.occupied {
+      color: #ebdbb2;
     }
     &.empty {
+      color: #665c54;
+    }
+    // .current is listed last so it wins over occupied/empty at equal specificity
+    &.current {
+      color: #98971a;
+      font-size: 1.15rem;
     }
   }
 }
