@@ -21,6 +21,6 @@ if [ "${FAST}" = false ]; then
 	mirrors
 fi
 
-yay --noconfirm
+yay --noconfirm --diffmenu=false --cleanmenu=false --editmenu=false
 
 clean-yay
