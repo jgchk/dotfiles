@@ -40,4 +40,5 @@ Library
 
 {{ if eq .machine_type "personal" }}
 # work-only skills (skipped on personal machines)
+.claude/skills/gitlab-mr-feedback
 {{ end }}
