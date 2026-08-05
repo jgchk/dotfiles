@@ -63,6 +63,9 @@ path=($ITENTIAL_FOLDER/itential-env/scripts $path)
 
 # Python user bin
 path=(/Users/jake.cheek/Library/Python/3.9/bin $path)
+
+# Local secrets, e.g. ANTHROPIC_API_KEY (chezmoi-ignored; create by hand per machine)
+[ -f "$XDG_CONFIG_HOME/zsh/.zshenv.local" ] && . "$XDG_CONFIG_HOME/zsh/.zshenv.local"
 {{- end }}
 
 # Path export

@@ -1,5 +1,8 @@
 .config/nvim/nvim-pack-lock.json
 
+# Local, machine-specific secrets — never chezmoi-managed, create by hand per machine
+.config/zsh/.zshenv.local
+
 # Repo docs — should not be deployed into $HOME
 README.md
 docs
