@@ -122,3 +122,27 @@ Defined in `.chezmoiignore`. On macOS, these are skipped entirely:
 - `beets`
 
 To add a new OS-conditional config, add it to `.chezmoiignore` under the appropriate `{{ if eq .chezmoi.os "..." }}` block.
+
+## Claude Code skills
+
+Personal Claude Code skills are managed here and deploy to `~/.claude/skills/`:
+
+```bash
+# Add a new or edited skill
+chezmoi add ~/.claude/skills/<name>/SKILL.md
+```
+
+Skills are **universal by default** — they deploy to every machine. For a
+machine-specific skill, add its target path to `.chezmoiignore` under the
+matching `{{ if eq .machine_type "..." }}` block (machine type is chosen at
+`chezmoi init` time), e.g. a work-only skill gets listed under the
+`"personal"` block so personal machines skip it:
+
+```
+{{ if eq .machine_type "personal" }}
+.claude/skills/work-deploy
+{{ end }}
+```
+
+Note that only the files listed in the source are managed — the rest of
+`~/.claude` (settings, projects, plugin caches) stays untouched by chezmoi.

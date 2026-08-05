@@ -28,3 +28,13 @@ docs
 # macOS-only paths
 Library
 {{ end }}
+
+# Machine-type-conditional Claude skills. Universal skills live in
+# dot_claude/skills/ and deploy everywhere; list exceptions here.
+{{ if eq .machine_type "work" }}
+# personal-only skills (skipped on work machines)
+{{ end }}
+
+{{ if eq .machine_type "personal" }}
+# work-only skills (skipped on personal machines)
+{{ end }}
