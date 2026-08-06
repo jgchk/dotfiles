@@ -42,7 +42,7 @@ Aim for a handful of high-leverage items, not a laundry list. Every item must **
 - **Automation script** — a bash script for a process done by hand (or by repeated ad-hoc commands) this session.
 - **Doc fix** — out-of-date, vague, or missing documentation that tripped up the work. Fix it so nobody trips on it again.
 - **Promote an implicit rule up the enforcement ladder.** Development standards that get repeated in conversation should climb: *spoken in chat* → *written* (CLAUDE.md or the project's development docs) → *reviewed* (a dedicated reviewer subagent for a commonly-violated standard, e.g. `.claude/agents/`) → *enforced* (a deterministic lint rule). Prefer the highest rung the rule can reach: a linter catches every violation forever; an LLM reviewer catches most; a doc catches those who read it. Each retro, ask which repeated rules are ready to move up a rung.
-- **Memory entry** — a durable insight about how the user works or what the project needs that fits the assistant's persistent memory.
+- **CLAUDE.md entry** — a durable insight about how the user works or what the project needs, written into the project's CLAUDE.md (or a doc it links). Prefer this over assistant auto-memory: CLAUDE.md is user-controlled, versioned, and visible — do not propose memory entries as retro outcomes.
 - **Repo code changes — sparingly.** Only the kind that would come up in a real sprint retro (a flaky test that wasted everyone's time, a build step that needs caching), never code-review findings (bugs, style, design nits). If you notice those, mention them in one line and move on.
 
 ## Closing the loop
