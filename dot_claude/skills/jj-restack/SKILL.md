@@ -1,7 +1,7 @@
 ---
 name: jj-restack
 description: Rebase a GitLab merge request — or a whole stack of dependent MRs — that has fallen behind its target branch, using jj (Jujutsu). Use this whenever an MR shows "N commits behind" on GitLab, whenever a rebase or merge conflict shows up in package.json/package-lock.json's "version" field (that almost always means a CI-generated "Updating version to X.Y.Z." commit collided with another one — it should be dropped, not hand-resolved), or whenever the user asks to "rebase this MR", "restack", "fix up this stacked diff", "rebase the stack", or mentions multiple MRs that build on each other (one MR's source branch is another MR's target branch). Also trigger on messier phrasing that still means "the branch history is wrong and needs restacking onto the right base": "someone merged master into their branch instead of rebasing", "I think our work got reversed/undone", "this branch's history looks wrong", "bookmarks point at the wrong commits", or any report of unexpected/duplicated/missing commits on a branch that should sit cleanly on top of another. Trigger even if the user only pastes MR URLs and says "these need rebasing" or "fix the conflict on this MR" — this is a routine, repeatable operation on this team because every repo's CI pipeline pushes its own version-bump commit, and that conflicts the moment a sibling MR merges first.
-version: 0.3.0
+version: 0.4.0
 ---
 
 # jj Restack
@@ -76,12 +76,42 @@ the kind of mistake that's annoying to unwind.
 jj git fetch
 ```
 
-Don't trust bookmark names alone to tell you the branch hierarchy — verify it
-in the local commit graph. For each branch in the chain, in order:
+**Before trusting any bare branch name (`master`, `main`, or a parent branch
+you don't own), confirm its local bookmark actually tracks the remote.**
+`jj git fetch` always updates the remote-tracking ref (`master@origin`), but
+it only fast-forwards the plain local bookmark (`master`) if that bookmark is
+set up to track it — and in plenty of colocated jj repos it isn't (leftover
+from an old `git clone`, never explicitly tracked, or last moved by hand
+weeks ago). When it's untracked, `jj git fetch` reports `Nothing changed`
+even while `master@origin` has moved by dozens of commits, and it fails
+silently: no error, no conflict, just every downstream revset quietly
+comparing against a stale snapshot instead of reality. This is exactly how a
+restack can look clean, get pushed, and still show "N commits behind" on
+GitLab afterward — not because something merged mid-task, but because the
+"before" comparison was already wrong before the first rebase ran. Check
+before you rely on either:
 
 ```bash
-jj log -r '::master & ~::<branch>'                    # what master has that <branch> doesn't (branch is behind by this many)
-jj log -r '::<branch> & ~::master'                     # what <branch> has that master doesn't (branch is ahead by this many)
+jj log -r 'master | master@origin' --no-graph -T 'bookmarks ++ " " ++ commit_id.short() ++ "\n"'
+```
+
+If the two rows show different commit ids, don't fix the local bookmark and
+don't assume fetch will catch it up next time — just use `master@origin`
+(never the bare `master`) for every comparison, rebase destination, and
+re-verify below, for `master`/`main` and for any parent branch in a stack
+that you aren't actively restacking yourself. The bare local name is only
+trustworthy for the branch you *are* restacking right now (the one whose
+bookmark you're about to move and push) — that one is supposed to diverge
+from its own remote-tracking ref mid-task; that's the whole point.
+
+Don't trust bookmark names alone to tell you the branch hierarchy either —
+verify it in the local commit graph. For each branch in the chain, in order
+(substituting `master@origin` for `master` per the check above if they
+diverged):
+
+```bash
+jj log -r '::master@origin & ~::<branch>'              # what master has that <branch> doesn't (branch is behind by this many)
+jj log -r '::<branch> & ~::master@origin'              # what <branch> has that master doesn't (branch is ahead by this many)
 jj log -r '::<parent-branch> & ~::<branch>'            # what <parent-branch> has that <branch> doesn't
 ```
 
@@ -89,18 +119,20 @@ jj log -r '::<parent-branch> & ~::<branch>'            # what <parent-branch> ha
 A has that B lacks. It is easy to read these backwards under time pressure;
 if you get the two directions swapped, you'll misdiagnose which side is
 behind. Anchor on GitLab's own "N commits behind" number for the branch —
-compute both directions above and check which one's count matches. **If
-`::master & ~::<branch>` is empty, `<branch>` is not behind `master` at all —
-it already contains master fully (possibly with unmerged commits ahead of
-it). Do not rebase it just because it appears in a stack; only rebase the
-links that are actually behind their target.** This came up for a real
-2-level stack where the bottom branch had 0 commits behind master (nothing to
-do) while the top branch was 16 commits behind the bottom branch (the actual
-rebase needed) — treating both as "needs a master rebase" because the chain
-mapping suggested it would have been wrong.
+compute both directions above and check which one's count matches, and treat
+a mismatch as a sign you're comparing against a stale ref (see the bookmark
+check above) before you assume GitLab is wrong. **If
+`::master@origin & ~::<branch>` is empty, `<branch>` is not behind `master`
+at all — it already contains master fully (possibly with unmerged commits
+ahead of it). Do not rebase it just because it appears in a stack; only
+rebase the links that are actually behind their target.** This came up for a
+real 2-level stack where the bottom branch had 0 commits behind master
+(nothing to do) while the top branch was 16 commits behind the bottom branch
+(the actual rebase needed) — treating both as "needs a master rebase"
+because the chain mapping suggested it would have been wrong.
 
 The commit counts here should match what GitLab's "N commits behind" shows.
-If they don't, or if a graphed `jj log -r '(::<branch-A> | ::<branch-B>) & ~::master'`
+If they don't, or if a graphed `jj log -r '(::<branch-A> | ::<branch-B>) & ~::master@origin'`
 shows the two branches as *siblings* off a shared ancestor rather than one
 sitting cleanly on top of the other, that's a real finding worth surfacing:
 it usually means the two branches were properly stacked at some point, but
@@ -128,7 +160,7 @@ ancestors that aren't already ancestors of the destination) and moves all of
 them, tip included, in one shot:
 
 ```bash
-jj rebase -b <branch> -d master          # bottom of the stack, targets master directly
+jj rebase -b <branch> -d master@origin   # bottom of the stack, targets master directly — @origin, not the bare name (see Step 2)
 jj rebase -b <child-branch> -d <parent-branch>   # every subsequent branch, onto the parent's new tip
 ```
 
@@ -335,7 +367,7 @@ same "commits behind" check from Step 2 against the *current* remote state:
 
 ```bash
 jj git fetch
-jj log -r '::master & ~::<branch>'   # should now be empty for a branch rebased directly onto master
+jj log -r '::master@origin & ~::<branch>'   # should now be empty for a branch rebased directly onto master — @origin, not the bare name
 ```
 
 If this is non-empty, the branch is still behind — something landed on the
@@ -344,6 +376,12 @@ what you expected. Do not report the restack finished until this actually
 shows 0; if it doesn't, loop back to Step 2 rather than reporting partial
 progress as done. This matters most for stacks: verify every branch in the
 chain individually, not just the last one you touched.
+
+Cross-check against GitLab's own number too, not just your local repo's
+view of it — `glab api "projects/:id/merge_requests/<iid>" -F json` includes
+a `diverged_commits_count` field, and it should read `0`. Your local jj
+comparison and GitLab's number are computed from two different clones; if
+they agree, that's real confirmation, not just self-consistency.
 
 ## Step 10 — Report back
 
