@@ -3,6 +3,7 @@ return {
   setup = function()
     vim.keymap.set("n", "<leader>ff", "<cmd>FzfLua files<cr>")
     vim.keymap.set("n", "<leader>sg", "<cmd>FzfLua live_grep<cr>")
+    vim.keymap.set("n", "<leader>sr", "<cmd>FzfLua resume<cr>")
     vim.keymap.set("n", "<leader>fb", "<cmd>FzfLua buffers<cr>")
   end,
 }
