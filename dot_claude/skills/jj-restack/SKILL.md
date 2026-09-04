@@ -186,11 +186,33 @@ descriptions, new hashes). If it dropped to fewer than before — especially
 if it dropped to just the version-bump commit — you just hit the `-s`
 footgun above; `jj undo` and redo with `-b`.
 
-## Step 4 — Resolve conflicts
+## Step 4 — Resolve conflicts, and drop stale version bumps even without one
 
-`jj rebase` reports conflicts inline and tells you which commits and paths
-are affected. Two very different kinds show up; tell them apart before
-touching either:
+A version-bump commit can go stale two different ways, and only one of them
+shows up as a conflict. `jj rebase` reports textual conflicts inline and
+tells you which commits and paths are affected — but the *other* case is
+silent: if the branch's target version already exists in the destination by
+the time you rebase, the bump commit's diff collapses to empty (jj's own log
+marks it `(empty) Updating version to X.Y.Z.`) with zero conflict reported.
+`jj rebase -b ... -d ...` printing a clean "Rebased N commits" does not mean
+there's nothing to clean up — it means only that nothing *conflicted*. Check
+for the empty case on every branch right after rebasing, before you even get
+to Step 6 validation, using the bundled script (safe to run across the whole
+stack in one call — pass every bookmark in the chain, bottom to top; it only
+touches tips that are actually empty version-bump commits and leaves
+everything else untouched):
+
+```bash
+~/.claude/skills/jj-restack/scripts/drop-empty-version-bumps.sh <branch1> <branch2> ...
+```
+
+This re-points each affected bookmark to its real content tip for you, the
+same way Step 4A's conflict script requires you to after abandoning. Re-run
+Step 2's ahead/behind check afterward if anything was dropped — abandoning a
+commit changes hashes for every descendant above it.
+
+Textual conflicts are handled separately, once you're past that check. Two
+very different kinds show up; tell them apart before touching either:
 
 ### A) Version-bump conflicts (the common case)
 
@@ -321,6 +343,14 @@ Pushing rewrites a shared remote branch — confirm with the user first unless
 they've already given a clear go-ahead for the whole stack (e.g. "let's fix
 up this whole chain" covers all the pushes that follow from it; you don't
 need to re-ask before each one).
+
+If you dropped a stale version-bump commit in Step 4, `jj git push` will
+print `[move backward from ... to ...]` for that bookmark instead of the
+usual `[move sideways ...]` — that's expected (the new tip is an ancestor of
+what's on the remote, since you removed a commit rather than replacing it)
+and `jj git push` does it without needing a force flag. Don't mistake it for
+the "unexpectedly moved on the remote" case below, which is the opposite
+direction (the remote moved out from under you, not the other way around).
 
 **"The following references unexpectedly moved on the remote"** — this is
 CI doing exactly what it's supposed to: it added a fresh version-bump commit

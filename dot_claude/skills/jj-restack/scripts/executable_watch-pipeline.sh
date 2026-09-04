@@ -23,11 +23,29 @@ elapsed=0
 last_status=""
 
 while true; do
-  pipeline_json=$(glab api "merge_requests/${MR_IID}/pipelines" 2>/dev/null | python3 -c "
+  raw=$(glab api "projects/:id/merge_requests/${MR_IID}/pipelines" 2>&1) && api_ok=1 || api_ok=0
+
+  if [[ "$api_ok" -eq 0 ]]; then
+    echo "glab api call failed for MR !${MR_IID}, aborting rather than looping silently:" >&2
+    echo "$raw" >&2
+    exit 1
+  fi
+
+  pipeline_json=$(echo "$raw" | python3 -c "
 import json, sys
-pipelines = json.load(sys.stdin)
-print(json.dumps(pipelines[0]) if pipelines else '')
-" 2>/dev/null || true)
+data = json.load(sys.stdin)
+if isinstance(data, dict):
+    # e.g. {\"error\": \"404 Not Found\"} — a real API error, not \"no pipelines yet\"
+    print('__ERROR__' + json.dumps(data))
+else:
+    print(json.dumps(data[0]) if data else '')
+" 2>&1) || { echo "could not parse glab api response for MR !${MR_IID}, aborting:" >&2; echo "$raw" >&2; exit 1; }
+
+  if [[ "$pipeline_json" == __ERROR__* ]]; then
+    echo "glab api returned an error for MR !${MR_IID}, aborting rather than looping silently:" >&2
+    echo "${pipeline_json#__ERROR__}" >&2
+    exit 1
+  fi
 
   if [[ -z "$pipeline_json" ]]; then
     echo "no pipeline found for MR !${MR_IID} yet (elapsed ${elapsed}s)" >&2
