@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Install CLI tools that nvim's conform.nvim formatters shell out to:
+#   prettier          -> markdown/javascript/typescript
+#   reformat-gherkin  -> .feature files (nvim filetype "cucumber")
+# Re-runs whenever this script's content changes; each tool is only installed
+# if missing, so it is safe to re-run.
+set -eu
+
+{{ if eq .chezmoi.os "darwin" -}}
+if ! command -v prettier >/dev/null 2>&1; then
+  command -v brew >/dev/null 2>&1 && brew install prettier || echo "brew not found; install prettier manually" >&2
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  command -v brew >/dev/null 2>&1 && brew install uv || echo "brew not found; install uv manually" >&2
+fi
+{{ else if eq .chezmoi.os "linux" -}}
+if ! command -v prettier >/dev/null 2>&1; then
+  if command -v pacman >/dev/null 2>&1; then
+    sudo pacman -S --needed --noconfirm prettier uv
+  elif command -v npm >/dev/null 2>&1; then
+    npm install -g prettier
+  else
+    echo "no pacman/npm found; install prettier manually" >&2
+  fi
+fi
+{{ end -}}
+
+if ! command -v reformat-gherkin >/dev/null 2>&1; then
+  if command -v uv >/dev/null 2>&1; then
+    uv tool install reformat-gherkin
+  elif command -v pipx >/dev/null 2>&1; then
+    pipx install reformat-gherkin
+  else
+    echo "uv/pipx not found; install reformat-gherkin manually" >&2
+  fi
+fi

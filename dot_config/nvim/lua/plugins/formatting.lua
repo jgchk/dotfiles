@@ -6,10 +6,18 @@ return {
         javascript = { "prettier" },
         typescript = { "prettier" },
         markdown = { "prettier" },
+        cucumber = { "reformat_gherkin" },
+      },
+      formatters = {
+        reformat_gherkin = {
+          command = "reformat-gherkin",
+          args = { "-" },
+          stdin = true,
+        },
       },
       format_on_save = {
         -- These options will be passed to conform.format()
-        timeout_ms = 500,
+        timeout_ms = 2000,
         lsp_format = "fallback",
       },
     })
