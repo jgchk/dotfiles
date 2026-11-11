@@ -1,5 +1,6 @@
 vim.lsp.enable("vtsls")
 vim.lsp.enable("eslint")
+vim.lsp.enable("rust_analyzer")
 
 vim.opt.completeopt = { "menuone", "noselect", "popup" }
 

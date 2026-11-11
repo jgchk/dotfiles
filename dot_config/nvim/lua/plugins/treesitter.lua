@@ -5,6 +5,8 @@ local languages = {
   "clojure",
   "typescript",
   "json",
+  "rust",
+  "toml",
 }
 
 return {

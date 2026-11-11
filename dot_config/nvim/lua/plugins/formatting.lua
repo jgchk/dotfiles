@@ -6,6 +6,7 @@ return {
         javascript = { "prettier" },
         typescript = { "prettier" },
         markdown = { "prettier" },
+        rust = { "rustfmt" },
         cucumber = { "reformat_gherkin" },
       },
       formatters = {
