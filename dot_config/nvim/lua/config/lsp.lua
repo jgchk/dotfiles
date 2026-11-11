@@ -1,5 +1,16 @@
 vim.lsp.enable("vtsls")
 vim.lsp.enable("eslint")
+
+-- Prefer a standalone rust-analyzer over the rustup proxy on PATH: it follows each
+-- project's pinned toolchain without needing the component installed per toolchain.
+local function find_rust_analyzer()
+  for _, p in ipairs({ "/opt/homebrew/bin/rust-analyzer", "/usr/local/bin/rust-analyzer", "/usr/bin/rust-analyzer" }) do
+    if vim.uv.fs_stat(p) then return p end
+  end
+  return "rust-analyzer"
+end
+
+vim.lsp.config("rust_analyzer", { cmd = { find_rust_analyzer() } })
 vim.lsp.enable("rust_analyzer")
 
 vim.opt.completeopt = { "menuone", "noselect", "popup" }
