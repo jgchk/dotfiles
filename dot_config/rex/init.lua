@@ -1,0 +1,8 @@
+-- Migrated from tmux (prefix ctrl+space)
+rex.bind("ctrl+space>ctrl+space", "pane.send_key", { key = "ctrl+space" })
+rex.bind("ctrl+space>h", "client.tab.previous")
+rex.bind("ctrl+space>l", "client.tab.next")
+rex.bind("ctrl+space>r", "client.config.reload")
+rex.bind("ctrl+space>shift+'", "pane.split", { direction = "down" })
+rex.bind("ctrl+space>shift+5", "pane.split", { direction = "right" })
+rex.bind("ctrl+space>c", "client.tab.new")

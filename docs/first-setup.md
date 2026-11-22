@@ -112,7 +112,7 @@ Autostarted by `hypr/configs/exec.conf`: `polkit-gnome`, `hyprpaper`,
 ### Misc apps (optional, only if you use them)
 
 ```bash
-sudo pacman -S beets zellij       # music tagger, terminal multiplexer
+sudo pacman -S beets               # music tagger
 # vscode: install 'code'/'visual-studio-code-bin' separately if wanted
 ```
 
